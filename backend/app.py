@@ -22,6 +22,7 @@ def save_reading(payload):
     reading = {
         "temperature": payload.get("temperature"),
         "humidity": payload.get("humidity"),
+        "pressure": payload.get("pressure"),
         "device_id": payload.get("device_id", "unknown"),
         "received_at": datetime.now(timezone.utc).isoformat(),
     }

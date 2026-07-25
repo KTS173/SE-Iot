@@ -47,7 +47,8 @@ class SensorMqttClient:
     @staticmethod
     def _device_from_topic(topic):
         parts = topic.split("/")
-        return parts[1] if len(parts) > 2 else "unknown"
+        # topics like "Test sensor/002" -> "002", "sensors/sensor-01/data" -> "sensor-01"
+        return parts[1] if len(parts) > 1 else "unknown"
 
     def start(self):
         try:
