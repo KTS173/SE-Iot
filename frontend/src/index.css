@@ -37,3 +37,9 @@
       "Helvetica Neue", Arial, sans-serif;
   }
 }
+
+@layer utilities {
+  .dashboard-scrollbar { scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
+  .dashboard-scrollbar::-webkit-scrollbar { width: 6px; }
+  .dashboard-scrollbar::-webkit-scrollbar-thumb { border-radius: 9999px; background: #cbd5e1; }
+}
