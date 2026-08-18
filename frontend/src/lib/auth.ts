@@ -1,6 +1,7 @@
 export interface User {
   name: string;
   email: string;
+  username?: string;
 }
 
 const STORAGE_KEY = "lab_user";
