@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 import {
   FlaskConical, LogOut, Thermometer, Droplets, Server, BatteryCharging,
-  Video, MapPin, Activity, Circle, Calendar as CalendarIcon,
+  Video, MapPin, Activity, Circle, Calendar as CalendarIcon, AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -17,7 +17,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
 import { clearUser, getUser, type User } from "@/lib/auth";
-import { generateRangeComparison, useLiveSensors } from "@/lib/sensors";
+import { generateRangeComparison, useLiveSensors, useSystemHealth } from "@/lib/sensors";
 import { toast } from "sonner";
 
 
@@ -39,6 +39,7 @@ type Metric = "temperature" | "humidity";
 function Dashboard() {
   const navigate = useNavigate();
   const sensors = useLiveSensors();
+  const systemHealth = useSystemHealth();
   const [user, setUserState] = useState<User | null>(null);
   const [activeId, setActiveId] = useState(1);
   const [metric, setMetric] = useState<Metric>("temperature");
@@ -57,6 +58,15 @@ function Dashboard() {
     }
     setUserState(u);
   }, [navigate]);
+
+  useEffect(() => {
+    if (systemHealth?.storage.alert) {
+      toast.error(`Storage nearly full: ${systemHealth.storage.used_percent}% used`, {
+        id: "storage-nearly-full",
+        duration: 10_000,
+      });
+    }
+  }, [systemHealth?.storage.alert, systemHealth?.storage.used_percent]);
 
   const active = useMemo(
     () => sensors.find((s) => s.id === activeId) ?? sensors[0],
@@ -111,6 +121,17 @@ function Dashboard() {
           </div>
         </div>
       </header>
+
+      {systemHealth?.storage.alert && (
+        <div className="mx-4 sm:mx-6 mt-4 flex items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-amber-900">
+          <AlertTriangle className="h-5 w-5 shrink-0" />
+          <div className="text-sm">
+            <span className="font-semibold">พื้นที่จัดเก็บใกล้เต็ม</span>{" "}
+            ใช้แล้ว {systemHealth.storage.used_percent}% เหลือประมาณ{" "}
+            {(systemHealth.storage.free_bytes / 1_073_741_824).toFixed(1)} GB
+          </div>
+        </div>
+      )}
 
       <div className="p-4 sm:p-6 grid grid-cols-12 gap-4 lg:gap-6">
         {/* Sidebar */}
