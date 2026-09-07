@@ -30,9 +30,8 @@ services:
       STORAGE_CLEANUP_BATCH_SIZE: "10000"
       STORAGE_MIN_READINGS: "100"
       SENSOR_RETENTION_DAYS: "31"
-      DEVICE_OFFLINE_SECONDS: "120"
     volumes:
-      - sensor_data:/data
+      - /mnt/se-iot-data:/data
     depends_on:
       - broker
     restart: unless-stopped

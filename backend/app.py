@@ -22,6 +22,7 @@ storage_cleanup_target_percent = float(os.getenv("STORAGE_CLEANUP_TARGET_PERCENT
 storage_cleanup_batch_size = int(os.getenv("STORAGE_CLEANUP_BATCH_SIZE", "10000"))
 storage_min_readings = int(os.getenv("STORAGE_MIN_READINGS", "100"))
 sensor_retention_days = int(os.getenv("SENSOR_RETENTION_DAYS", "31"))
+device_offline_seconds = int(os.getenv("DEVICE_OFFLINE_SECONDS", "120"))
 storage_warning_logged = False
 storage_cleanup_blocked_logged = False
 storage_cleanup_lock = threading.Lock()
@@ -244,27 +245,62 @@ def latest_sensor():
 @app.get("/api/sensors")
 def sensor_history():
     requested_limit = request.args.get("limit", default=20, type=int)
-    limit = max(1, min(requested_limit, 1000))
+    limit = max(1, min(requested_limit, 5000))
+
+    # received_at is stored as an ISO-8601 UTC string, so lexicographic
+    # comparison is chronological and the index on it still applies.
+    filters, params = [], []
+    for name, operator in (("from", ">="), ("to", "<=")):
+        value = request.args.get(name)
+        if value:
+            filters.append(f"received_at {operator} ?")
+            params.append(value)
+    device_id = request.args.get("device_id")
+    if device_id:
+        filters.append("device_id = ?")
+        params.append(device_id)
+    where = f"WHERE {' AND '.join(filters)}" if filters else ""
+
     with get_db() as connection:
         rows = connection.execute(
-            """
+            f"""
             SELECT * FROM (
-                SELECT * FROM sensor_readings ORDER BY id DESC LIMIT ?
+                SELECT * FROM sensor_readings {where} ORDER BY id DESC LIMIT ?
             ) ORDER BY id ASC
             """,
-            (limit,),
+            (*params, limit),
         ).fetchall()
     readings = [row_to_reading(row) for row in rows]
     return jsonify({"data": readings})
 
 
-@app.post("/api/sensors")
-def create_sensor_reading():
-    """Convenient endpoint for testing without an MQTT broker."""
-    payload = request.get_json(silent=True) or {}
-    if payload.get("temperature") is None or payload.get("humidity") is None:
-        return jsonify({"error": "temperature and humidity are required"}), 400
-    return jsonify({"data": save_reading(payload)}), 201
+@app.get("/api/devices")
+def devices():
+    """Devices that have ever reported, with their most recent reading."""
+    with get_db() as connection:
+        rows = connection.execute(
+            """
+            SELECT reading.* FROM sensor_readings AS reading
+            JOIN (
+                SELECT device_id, MAX(id) AS latest_id
+                FROM sensor_readings GROUP BY device_id
+            ) AS latest ON reading.id = latest.latest_id
+            ORDER BY reading.device_id ASC
+            """
+        ).fetchall()
+
+    now = datetime.now(timezone.utc)
+    payload = []
+    for row in rows:
+        reading = row_to_reading(row)
+        try:
+            age = (now - datetime.fromisoformat(reading["received_at"])).total_seconds()
+        except ValueError:
+            age = None
+        reading["online"] = age is not None and age <= device_offline_seconds
+        reading["seconds_since_reading"] = None if age is None else round(age)
+        payload.append(reading)
+    return jsonify({"data": payload, "offline_after_seconds": device_offline_seconds})
 
 
 if __name__ == "__main__":
