@@ -5,3 +5,7 @@ __pycache__/
 *.pyc
 node_modules/
 dist/
+mosquitto/password.txt
+*.db
+*.db-shm
+*.db-wal

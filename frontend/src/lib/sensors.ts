@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+// Production uses nginx's same-origin /api proxy, so the Pi's IP/hostname does
+// not need to be baked into the frontend image.
+const API_URL = import.meta.env.VITE_API_URL || "";
 
 export type SensorStatus = "Online" | "Offline";
 
@@ -14,6 +16,43 @@ export interface Sensor {
   /** floor-plan marker position, percent of container */
   x: number;
   y: number;
+}
+
+export interface SystemHealth {
+  status: string;
+  mqtt_connected: boolean;
+  stored_readings: number;
+  storage: {
+    used_percent: number;
+    free_bytes: number;
+    total_bytes: number;
+    warning_percent: number;
+    alert: boolean;
+  };
+}
+
+export function useSystemHealth(): SystemHealth | null {
+  const [health, setHealth] = useState<SystemHealth | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      try {
+        const response = await fetch(`${API_URL}/api/health`);
+        if (response.ok && active) setHealth((await response.json()) as SystemHealth);
+      } catch {
+        // Keep the last known health status during a temporary network failure.
+      }
+    };
+    load();
+    const timer = setInterval(load, 30_000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, []);
+
+  return health;
 }
 
 /** Baseline mock sensors. Sensor 1 & 2 are overridden with live data. */
