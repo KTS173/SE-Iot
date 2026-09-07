@@ -29,10 +29,13 @@ services:
       STORAGE_CLEANUP_TARGET_PERCENT: "80"
       STORAGE_CLEANUP_BATCH_SIZE: "10000"
       STORAGE_MIN_READINGS: "100"
-      SENSOR_RETENTION_DAYS: "31"
+      SENSOR_RETENTION_DAYS: "${SENSOR_RETENTION_DAYS:-31}"
       DEVICE_OFFLINE_SECONDS: "120"
     volumes:
-      - sensor_data:/data
+      # Defaults to the named volume on the SD card. Set DATA_DIR in .env to an
+      # absolute host path (e.g. /mnt/se-iot-data) to store readings on an
+      # external disk instead; anything not starting with / is read as a volume name.
+      - ${DATA_DIR:-sensor_data}:/data
     depends_on:
       - broker
     restart: unless-stopped
