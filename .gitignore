@@ -9,3 +9,9 @@ mosquitto/password.txt
 *.db
 *.db-shm
 *.db-wal
+
+# build artifacts and scratch
+ngrok-*.tgz
+*.bak
+tmp/
+output/
