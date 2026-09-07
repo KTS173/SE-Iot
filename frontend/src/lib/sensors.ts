@@ -209,17 +209,30 @@ interface HistoryReading {
   received_at: string;
 }
 
+const MINUTE_MS = 60_000;
 const HOUR_MS = 3_600_000;
 const DAY_MS = 86_400_000;
 
-function bucketLabel(date: Date, byHour: boolean): string {
-  if (byHour) return `${String(date.getHours()).padStart(2, "0")}:00`;
-  return `${date.getMonth() + 1}/${date.getDate()}`;
+function clockLabel(date: Date): string {
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
 /**
- * Real history from the backend, averaged into hourly buckets for ranges up to
- * two days and daily buckets beyond that. Returns only buckets that have data.
+ * Bucket width follows the span. Anything up to half a day plots one point per
+ * minute; beyond that a minute bucket is more points than the axis can carry.
+ */
+function bucketFor(spanMs: number): { ms: number; label: (date: Date) => string } {
+  if (spanMs <= 12 * HOUR_MS) return { ms: MINUTE_MS, label: clockLabel };
+  if (spanMs <= 2 * DAY_MS) {
+    return { ms: HOUR_MS, label: (date) => `${String(date.getHours()).padStart(2, "0")}:00` };
+  }
+  return { ms: DAY_MS, label: (date) => `${date.getMonth() + 1}/${date.getDate()}` };
+}
+
+/**
+ * Real history from the backend, averaged into buckets sized to the requested
+ * span (minutes for hours, hours for days, days for months). Returns only
+ * buckets that have data.
  */
 export function useRangeComparison(
   sensors: Sensor[],
@@ -253,8 +266,7 @@ export function useRangeComparison(
   }, [fromIso, toIso]);
 
   return useMemo(() => {
-    const byHour = to.getTime() - from.getTime() <= 2 * DAY_MS;
-    const bucketMs = byHour ? HOUR_MS : DAY_MS;
+    const { ms: bucketMs, label } = bucketFor(to.getTime() - from.getTime());
     const idOf = new Map(sensors.map((sensor) => [sensor.deviceId, sensor.id]));
 
     // bucket start -> chart id -> running average
@@ -280,7 +292,7 @@ export function useRangeComparison(
     return [...buckets.entries()]
       .sort(([a], [b]) => a - b)
       .map(([start, bucket]) => {
-        const point = { time: bucketLabel(new Date(start), byHour) } as ChartPoint;
+        const point = { time: label(new Date(start)) } as ChartPoint;
         for (const [id, { sum, count }] of bucket) {
           point[`s${id}`] = Number((sum / count).toFixed(1));
         }
