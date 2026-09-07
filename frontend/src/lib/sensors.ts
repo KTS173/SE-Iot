@@ -18,6 +18,23 @@ export interface Sensor {
   /** floor-plan marker position, percent of container */
   x: number;
   y: number;
+  minTemp: number;
+  maxTemp: number;
+  minHumidity: number;
+  maxHumidity: number;
+  /** false when the device has reported but has no saved settings yet. */
+  configured: boolean;
+}
+
+export interface SensorConfigInput {
+  name: string;
+  location: string;
+  x?: number;
+  y?: number;
+  min_temp: number;
+  max_temp: number;
+  min_humidity: number;
+  max_humidity: number;
 }
 
 export interface SystemHealth {
@@ -57,16 +74,7 @@ export function useSystemHealth(): SystemHealth | null {
   return health;
 }
 
-/**
- * Floor-plan placement and display names, which the broker does not carry.
- * Devices missing from this map are still shown, using a derived position.
- */
-const DEVICE_PRESENTATION: Record<string, { name: string; location: string; x: number; y: number }> = {
-  "001": { name: "Sensor 1", location: "North Wall", x: 46, y: 26 },
-  "002": { name: "Sensor 2", location: "South Wall", x: 46, y: 82 },
-};
-
-/** Stable pseudo-random placement so an unmapped device keeps its spot. */
+/** Stable placement for a device with no saved position, so it keeps its spot. */
 function derivedPlacement(deviceId: string): { x: number; y: number } {
   let hash = 0;
   for (const char of deviceId) hash = (hash * 31 + char.charCodeAt(0)) % 10_000;
@@ -78,28 +86,71 @@ function chartId(deviceId: string, index: number): number {
   return Number.isInteger(numeric) && numeric > 0 ? numeric : 1000 + index;
 }
 
-interface DeviceReading {
+interface DeviceRow {
   device_id: string;
   temperature: number | null;
   humidity: number | null;
-  received_at: string;
+  received_at: string | null;
   online: boolean;
+  name: string;
+  location: string;
+  x: number;
+  y: number;
+  min_temp: number;
+  max_temp: number;
+  min_humidity: number;
+  max_humidity: number;
+  configured: boolean;
 }
 
-function toSensor(reading: DeviceReading, index: number): Sensor {
-  const presentation = DEVICE_PRESENTATION[reading.device_id];
+function toSensor(row: DeviceRow, index: number): Sensor {
   return {
-    id: chartId(reading.device_id, index),
-    deviceId: reading.device_id,
-    name: presentation?.name ?? `Sensor ${reading.device_id}`,
-    location: presentation?.location ?? "Unassigned",
-    status: reading.online ? "Online" : "Offline",
-    temperature: reading.online ? reading.temperature : null,
-    humidity: reading.online ? reading.humidity : null,
-    ...(presentation
-      ? { x: presentation.x, y: presentation.y }
-      : derivedPlacement(reading.device_id)),
+    id: chartId(row.device_id, index),
+    deviceId: row.device_id,
+    name: row.name,
+    location: row.location,
+    status: row.online ? "Online" : "Offline",
+    temperature: row.online ? row.temperature : null,
+    humidity: row.online ? row.humidity : null,
+    ...(row.configured ? { x: row.x, y: row.y } : derivedPlacement(row.device_id)),
+    minTemp: row.min_temp,
+    maxTemp: row.max_temp,
+    minHumidity: row.min_humidity,
+    maxHumidity: row.max_humidity,
+    configured: row.configured,
   };
+}
+
+/** Lets a write refresh every mounted sensor list without waiting for the poll. */
+const changeListeners = new Set<() => void>();
+function notifySensorsChanged(): void {
+  for (const listener of changeListeners) listener();
+}
+
+export async function saveSensorConfig(
+  deviceId: string,
+  config: SensorConfigInput,
+): Promise<void> {
+  const response = await fetch(`${API_URL}/api/devices/${encodeURIComponent(deviceId)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(config),
+  });
+  if (!response.ok) {
+    const { error } = (await response.json().catch(() => ({}))) as { error?: string };
+    throw new Error(error ?? `Could not save sensor (HTTP ${response.status})`);
+  }
+  notifySensorsChanged();
+}
+
+export async function deleteSensorConfig(deviceId: string, purge = false): Promise<void> {
+  const query = purge ? "?purge=true" : "";
+  const response = await fetch(
+    `${API_URL}/api/devices/${encodeURIComponent(deviceId)}${query}`,
+    { method: "DELETE" },
+  );
+  if (!response.ok) throw new Error(`Could not delete sensor (HTTP ${response.status})`);
+  notifySensorsChanged();
 }
 
 /**
@@ -116,7 +167,7 @@ export function useLiveSensors(): Sensor[] {
       try {
         const response = await fetch(`${API_URL}/api/devices`);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const { data } = (await response.json()) as { data: DeviceReading[] };
+        const { data } = (await response.json()) as { data: DeviceRow[] };
         if (active) setSensors(data.map(toSensor));
       } catch {
         // Backend unreachable: keep the roster, drop the readings. Showing the
@@ -135,9 +186,11 @@ export function useLiveSensors(): Sensor[] {
     };
     load();
     const timer = setInterval(load, 5000);
+    changeListeners.add(load);
     return () => {
       active = false;
       clearInterval(timer);
+      changeListeners.delete(load);
     };
   }, []);
 

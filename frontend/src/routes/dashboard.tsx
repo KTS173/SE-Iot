@@ -43,7 +43,8 @@ type Health = "normal" | "warning" | "offline";
 
 function health(s: Sensor): Health {
   if (s.status === "Offline") return "offline";
-  if ((s.humidity ?? 0) > 60 || (s.temperature ?? 0) > 35) return "warning";
+  if (s.temperature != null && (s.temperature < s.minTemp || s.temperature > s.maxTemp)) return "warning";
+  if (s.humidity != null && (s.humidity < s.minHumidity || s.humidity > s.maxHumidity)) return "warning";
   return "normal";
 }
 
