@@ -31,6 +31,10 @@ services:
       STORAGE_MIN_READINGS: "100"
       SENSOR_RETENTION_DAYS: "${SENSOR_RETENTION_DAYS:-31}"
       DEVICE_OFFLINE_SECONDS: "120"
+      LINE_CHANNEL_ACCESS_TOKEN: "${LINE_CHANNEL_ACCESS_TOKEN:-}"
+      LINE_CHANNEL_SECRET: "${LINE_CHANNEL_SECRET:-}"
+      ALERT_HYSTERESIS: "${ALERT_HYSTERESIS:-0.5}"
+      ALERT_CHECK_SECONDS: "${ALERT_CHECK_SECONDS:-60}"
     volumes:
       # Defaults to the named volume on the SD card. Set DATA_DIR in .env to an
       # absolute host path (e.g. /mnt/se-iot-data) to store readings on an

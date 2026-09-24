@@ -1,3 +1,4 @@
+import json
 import os
 import shutil
 import sqlite3
@@ -9,6 +10,8 @@ from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
+import alerts
+import line_client
 from mqtt_client import SensorMqttClient
 
 load_dotenv()
@@ -73,6 +76,8 @@ def init_db():
             )
             """
         )
+        alerts.init_alert_tables(connection)
+        line_client.init_line_tables(connection)
     with get_db() as connection:
         if connection.execute("PRAGMA auto_vacuum").fetchone()[0] != 1:
             connection.execute("PRAGMA auto_vacuum=FULL")
@@ -229,6 +234,22 @@ def cleanup_expired_readings(force=False):
         retention_cleanup_lock.release()
 
 
+def evaluate_alerts(reading):
+    """Run threshold rules for a stored reading, using the device's own limits."""
+    device_id = reading["device_id"]
+    with get_db() as connection:
+        row = connection.execute(
+            "SELECT * FROM sensor_config WHERE device_id = ?", (device_id,)
+        ).fetchone()
+    config = row_to_config(row, device_id)
+    try:
+        alerts.evaluate_reading(
+            device_id, reading["temperature"], reading["humidity"], config
+        )
+    except Exception as error:  # a rule bug must not cost us the reading
+        print(f"Alert evaluation failed for {device_id}: {error}")
+
+
 def save_reading(payload):
     global storage_warning_logged
     cleanup_expired_readings()
@@ -254,6 +275,7 @@ def save_reading(payload):
             ),
         )
     cleanup_storage_if_needed()
+    evaluate_alerts(reading)
     storage = get_storage_status()
     if storage["alert"] and not storage_warning_logged:
         print(
@@ -268,6 +290,10 @@ def save_reading(payload):
 
 init_db()
 cleanup_expired_readings(force=True)
+line_client.configure(get_db)
+alerts.configure(get_db, notifier=line_client.notify)
+line_client.start_worker()
+alerts.start_offline_watcher(device_offline_seconds)
 mqtt_client = SensorMqttClient(on_reading=save_reading)
 
 
@@ -426,6 +452,63 @@ def delete_device(device_id):
                 "DELETE FROM sensor_readings WHERE device_id = ?", (device_id,)
             )
     return jsonify({"data": {"device_id": device_id, "purged_readings": purge}})
+
+
+@app.get("/api/alerts")
+def list_alerts():
+    """Active alerts by default; ?status=all for the incident history."""
+    status = request.args.get("status", "active")
+    try:
+        limit = min(int(request.args.get("limit", 50)), 500)
+    except ValueError:
+        return jsonify({"error": "limit must be a number"}), 400
+    return jsonify({"data": alerts.list_alerts(status=status, limit=limit)})
+
+
+@app.post("/api/line/webhook")
+def line_webhook():
+    """
+    Endpoint registered in the LINE Developers Console.
+
+    Every request is signature-checked before it can touch the recipient list,
+    and LINE retries on anything but a fast 200, so failures here stay quiet
+    and never raise.
+    """
+    body = request.get_data()
+    signature = request.headers.get("X-Line-Signature", "")
+    if not line_client.verify_signature(body, signature):
+        return jsonify({"error": "invalid signature"}), 403
+    try:
+        events = json.loads(body.decode("utf-8")).get("events", [])
+        line_client.handle_webhook_events(events)
+    except (UnicodeDecodeError, json.JSONDecodeError, KeyError) as error:
+        print(f"Ignored malformed LINE webhook: {error}")
+    return jsonify({"status": "ok"})
+
+
+@app.get("/api/line/status")
+def line_status():
+    return jsonify(
+        {
+            "data": {
+                "configured": line_client.enabled(),
+                "recipients": line_client.list_recipients(),
+                "active_alerts": len(alerts.list_alerts(status="active", limit=500)),
+            }
+        }
+    )
+
+
+@app.post("/api/line/test")
+def line_test():
+    """Send a test push so setup can be verified without waiting for a breach."""
+    sent, error = line_client.send_text(
+        "Test notification from the lab environment monitor. "
+        "Alerts will arrive here."
+    )
+    if error:
+        return jsonify({"error": error, "sent": sent}), 502
+    return jsonify({"data": {"sent": sent}})
 
 
 if __name__ == "__main__":
