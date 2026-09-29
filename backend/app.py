@@ -290,7 +290,7 @@ def save_reading(payload):
 
 init_db()
 cleanup_expired_readings(force=True)
-line_client.configure(get_db)
+line_client.configure(get_db, on_delivered=alerts.mark_notified)
 alerts.configure(get_db, notifier=line_client.notify)
 line_client.start_worker()
 alerts.start_offline_watcher(device_offline_seconds)
@@ -465,6 +465,16 @@ def list_alerts():
     return jsonify({"data": alerts.list_alerts(status=status, limit=limit)})
 
 
+@app.get("/api/notifications")
+def list_notifications():
+    """Delivery log: one row per alert message, with attempts and outcome."""
+    try:
+        limit = min(int(request.args.get("limit", 50)), 500)
+    except ValueError:
+        return jsonify({"error": "limit must be a number"}), 400
+    return jsonify({"data": line_client.list_deliveries(limit=limit)})
+
+
 @app.post("/api/line/webhook")
 def line_webhook():
     """
@@ -494,6 +504,7 @@ def line_status():
                 "configured": line_client.enabled(),
                 "recipients": line_client.list_recipients(),
                 "active_alerts": len(alerts.list_alerts(status="active", limit=500)),
+                "deliveries": line_client.delivery_counts(),
             }
         }
     )

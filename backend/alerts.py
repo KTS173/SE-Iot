@@ -26,6 +26,16 @@ KIND_LABELS = {
     "offline": "Sensor offline",
 }
 
+# A quiet sensor means nothing is being watched at all, which is worse than any
+# single out-of-range value.
+KIND_SEVERITY = {
+    "temp_high": "warning",
+    "temp_low": "warning",
+    "humidity_high": "warning",
+    "humidity_low": "warning",
+    "offline": "critical",
+}
+
 _get_db = None
 _notifier = None
 _offline_watcher = None
@@ -87,7 +97,7 @@ def _open_alert(connection, device_id, kind, value, threshold):
         return None
 
     opened_at = _now()
-    connection.execute(
+    cursor = connection.execute(
         """
         INSERT INTO alerts (device_id, kind, value, threshold, opened_at)
         VALUES (?, ?, ?, ?, ?)
@@ -97,11 +107,13 @@ def _open_alert(connection, device_id, kind, value, threshold):
     name, location = _device_label(connection, device_id)
     return {
         "state": "opened",
+        "alert_id": cursor.lastrowid,
         "device_id": device_id,
         "name": name,
         "location": location,
         "kind": kind,
         "label": KIND_LABELS.get(kind, kind),
+        "severity": KIND_SEVERITY.get(kind, "warning"),
         "value": value,
         "threshold": threshold,
         "at": opened_at,
@@ -124,11 +136,13 @@ def _close_alert(connection, device_id, kind, value):
     name, location = _device_label(connection, device_id)
     return {
         "state": "closed",
+        "alert_id": row["id"],
         "device_id": device_id,
         "name": name,
         "location": location,
         "kind": kind,
         "label": KIND_LABELS.get(kind, kind),
+        "severity": KIND_SEVERITY.get(kind, "warning"),
         "value": value,
         "threshold": row["threshold"],
         "at": closed_at,
@@ -255,10 +269,12 @@ def list_alerts(status="active", limit=50):
             "location": row["location"] or "Unassigned",
             "kind": row["kind"],
             "label": KIND_LABELS.get(row["kind"], row["kind"]),
+            "severity": KIND_SEVERITY.get(row["kind"], "warning"),
             "value": row["value"],
             "threshold": row["threshold"],
             "opened_at": row["opened_at"],
             "closed_at": row["closed_at"],
+            "notified_at": row["notified_at"],
             "active": row["closed_at"] is None,
         }
         for row in rows
@@ -273,15 +289,20 @@ def _deliver(events):
             _notifier(event)
         except Exception as error:  # delivery must never break ingestion
             print(f"Alert notification failed for {event['device_id']}: {error}")
-            continue
-        if event["state"] != "opened":
-            continue
-        with _get_db() as connection:
-            connection.execute(
-                "UPDATE alerts SET notified_at = ? "
-                "WHERE device_id = ? AND kind = ? AND closed_at IS NULL",
-                (_now(), event["device_id"], event["kind"]),
-            )
+
+
+def mark_notified(alert_id):
+    """
+    Called by the channel once a message has actually been accepted.
+
+    Queuing is not delivery: stamping this at enqueue time would claim people
+    were told about an alert that LINE later rejected.
+    """
+    with _get_db() as connection:
+        connection.execute(
+            "UPDATE alerts SET notified_at = COALESCE(notified_at, ?) WHERE id = ?",
+            (_now(), alert_id),
+        )
 
 
 def start_offline_watcher(offline_seconds):
