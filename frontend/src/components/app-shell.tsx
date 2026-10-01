@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { LayoutDashboard, LogOut, Radio, Settings, Users } from "lucide-react";
+import { LayoutDashboard, LogOut, MessageSquareText, Radio, Settings, Users } from "lucide-react";
 import { BrandMark } from "@/components/brand";
 import { Button } from "@/components/ui/button";
 import { clearUser, getUser, type User } from "@/lib/auth";
@@ -12,6 +12,7 @@ const navigation = [
   { label: "Dashboard", to: "/dashboard", icon: LayoutDashboard, visible: true },
   { label: "Sensors", to: "/sensors", icon: Radio, visible: permissions.canManageSensors },
   { label: "Members", to: "/members", icon: Users, visible: permissions.canViewMembers },
+  { label: "LINE Log", to: "/line-log", icon: MessageSquareText, visible: permissions.canViewLineLog },
 ] as const;
 
 export function AppShell({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {

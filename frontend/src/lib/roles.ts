@@ -14,12 +14,14 @@ export const permissions = {
   canViewMembers: mockRole === "admin" || mockRole === "member",
   canInviteUsers: mockRole === "admin" || mockRole === "member",
   canRemoveMembers: mockRole === "admin",
+  canViewLineLog: mockRole === "admin",
   canAccessSettings: true,
 } as const;
 
-export type ProtectedPath = "/dashboard" | "/sensors" | "/members" | "/settings";
+export type ProtectedPath = "/dashboard" | "/sensors" | "/members" | "/line-log" | "/settings";
 export function canAccessRoute(path: ProtectedPath): boolean {
   if (path === "/sensors") return permissions.canManageSensors;
   if (path === "/members") return permissions.canViewMembers;
+  if (path === "/line-log") return permissions.canViewLineLog;
   return true;
 }

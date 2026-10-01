@@ -450,7 +450,7 @@ def list_deliveries(limit=50):
     with _get_db() as connection:
         rows = connection.execute(
             """
-            SELECT id, alert_id, event_state, channel, status, attempts,
+            SELECT id, alert_id, event_state, channel, message, status, attempts,
                    recipient_count, last_error, created_at, last_attempt_at,
                    next_attempt_at, delivered_at
             FROM notification_deliveries

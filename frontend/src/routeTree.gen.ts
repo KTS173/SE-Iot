@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DashboardRouteImport } from './routes/dashboard'
+import { Route as LineLogRouteImport } from './routes/line-log'
 import { Route as MembersRouteImport } from './routes/members'
 import { Route as SensorsRouteImport } from './routes/sensors'
 import { Route as SettingsRouteImport } from './routes/settings'
@@ -25,6 +26,11 @@ const IndexRoute = IndexRouteImport.update({
 const DashboardRoute = DashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LineLogRoute = LineLogRouteImport.update({
+  id: '/line-log',
+  path: '/line-log',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MembersRoute = MembersRouteImport.update({
@@ -56,6 +62,7 @@ const SignupRoute = SignupRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
+  '/line-log': typeof LineLogRoute
   '/members': typeof MembersRoute
   '/sensors': typeof SensorsRoute
   '/settings': typeof SettingsRoute
@@ -65,6 +72,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
+  '/line-log': typeof LineLogRoute
   '/members': typeof MembersRoute
   '/sensors': typeof SensorsRoute
   '/settings': typeof SettingsRoute
@@ -75,6 +83,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
+  '/line-log': typeof LineLogRoute
   '/members': typeof MembersRoute
   '/sensors': typeof SensorsRoute
   '/settings': typeof SettingsRoute
@@ -86,6 +95,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/dashboard'
+    | '/line-log'
     | '/members'
     | '/sensors'
     | '/settings'
@@ -95,6 +105,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/dashboard'
+    | '/line-log'
     | '/members'
     | '/sensors'
     | '/settings'
@@ -104,6 +115,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/dashboard'
+    | '/line-log'
     | '/members'
     | '/sensors'
     | '/settings'
@@ -114,6 +126,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   DashboardRoute: typeof DashboardRoute
+  LineLogRoute: typeof LineLogRoute
   MembersRoute: typeof MembersRoute
   SensorsRoute: typeof SensorsRoute
   SettingsRoute: typeof SettingsRoute
@@ -135,6 +148,13 @@ declare module '@tanstack/react-router' {
       path: '/dashboard'
       fullPath: '/dashboard'
       preLoaderRoute: typeof DashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/line-log': {
+      id: '/line-log'
+      path: '/line-log'
+      fullPath: '/line-log'
+      preLoaderRoute: typeof LineLogRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/members': {
@@ -178,6 +198,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   DashboardRoute: DashboardRoute,
+  LineLogRoute: LineLogRoute,
   MembersRoute: MembersRoute,
   SensorsRoute: SensorsRoute,
   SettingsRoute: SettingsRoute,
