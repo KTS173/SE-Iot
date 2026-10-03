@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build and run the full SE-IoT stack (MQTT broker + Flask backend + React frontend).
+# Build and run the full SE-IoT stack (MQTT broker + FastAPI backend + React frontend).
 set -euo pipefail
 
 cd "$(dirname "$0")"

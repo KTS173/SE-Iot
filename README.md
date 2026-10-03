@@ -1,101 +1,89 @@
 # SE-IoT
 
-หน้าเว็บ IoT แบบง่าย ประกอบด้วย React + Vite, Flask REST API และ MQTT subscriber
-สำหรับรับค่าอุณหภูมิ/ความชื้นจาก sensor
+ระบบติดตามอุณหภูมิ/ความชื้นในห้องแล็บ
 
-## เริ่มใช้งาน
-
-### Backend
-
-```bash
-cd backend
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python app.py
+```
+ESP32 ──MQTT──▶ Mosquitto ──▶ FastAPI backend ──▶ SQLite
+                                   ▲
+Browser ──▶ nginx (React + Vite) ──┘ /api/
 ```
 
-API จะเปิดที่ `http://localhost:5000`
+| ส่วน | เทคโนโลยี | โฟลเดอร์ |
+|---|---|---|
+| Frontend | React, Vite, TypeScript, Tailwind | `frontend/` |
+| Backend | FastAPI, paho-mqtt, SQLite | `backend/` |
+| Broker | Mosquitto (ต้องใช้ username/password) | `mosquitto/` |
 
-### Frontend
+## รันบนเครื่อง (dev)
 
 ```bash
+# Backend: http://localhost:5000  (เอกสาร API: /docs)
+cd backend
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+python app.py
+
+# Frontend: http://localhost:5173
 cd frontend
 npm install
 npm run dev
 ```
 
-หน้าเว็บจะเปิดที่ `http://localhost:5173` และดึงข้อมูลใหม่ทุก 5 วินาที
-
-## รูปแบบ MQTT
-
-ค่าเริ่มต้น subscribe topic `sensors/+/data` โดย payload เป็น JSON:
-
-```json
-{
-  "device_id": "sensor-01",
-  "temperature": 28.5,
-  "humidity": 63
-}
-```
-
-ตัวอย่าง publish ด้วย Mosquitto:
-
-```bash
-mosquitto_pub -h localhost -t sensors/sensor-01/data \
-  -m '{"temperature":28.5,"humidity":63}'
-```
-
-หากยังไม่มี MQTT broker ทดสอบผ่าน REST API ได้:
-
-```bash
-curl -X POST http://localhost:5000/api/sensors \
-  -H "Content-Type: application/json" \
-  -d '{"device_id":"demo-01","temperature":28.5,"humidity":63}'
-```
-
-เตรียมไฟล์ `.env` ไว้ให้แล้วทั้ง `backend/.env` และ `frontend/.env`
-สามารถใส่ค่าการเชื่อมต่อจริงได้ทันที โดยมี `.env.example` เป็นแม่แบบสำหรับนำไปใช้งานในเครื่องอื่น
+ค่าเชื่อมต่อใส่ใน `backend/.env` และ `frontend/.env` (ดูแม่แบบใน `.env.example`)
 
 ## ติดตั้งบน Raspberry Pi
 
-ชุด Docker Compose ใช้ Mosquitto ในเครื่องเป็น broker โดย Backend เชื่อมต่อผ่าน
-ชื่อ service `broker` และเปิดพอร์ต MQTT `1883` ให้ sensor ใน LAN เชื่อมต่อได้
-
-ตั้ง hostname ของ Pi และเปิดระบบ:
-
 ```bash
-sudo hostnamectl set-hostname tempse
-sudo reboot
-# SSH กลับเข้ามาแล้วรันในโฟลเดอร์โปรเจกต์
+# สร้างรหัสผ่าน MQTT ครั้งแรก
 docker run --rm -v "$PWD/mosquitto:/mosquitto/config" eclipse-mosquitto:2 \
   mosquitto_passwd -b -c /mosquitto/config/password.txt <MQTT_USERNAME> <MQTT_PASSWORD>
+
 docker compose up -d --build
 ```
 
-หน้าเว็บเปิดที่ `http://tempse.local:5174` และ sensor ตั้ง MQTT ดังนี้:
+- หน้าเว็บ: `http://tempse.local:5174`
+- API: `http://tempse.local:5001`
+- MQTT: `tempse.local:1883`
+- ค่าลับ (MQTT, LINE) อยู่ใน `.env` ข้าง `docker-compose.yml`
 
-```cpp
-const char* mqtt_server = "tempse.local";
-const int mqtt_port = 1883;
+อัปเดตหลัง push โค้ดใหม่: `git pull && docker compose up -d --build`
+
+## ส่งข้อมูลจาก sensor
+
+Publish ไปที่ topic `Test sensor/<device_id>` เป็น JSON:
+
+```json
+{"temperature": 28.5, "humidity": 63, "pressure": 1001.2}
 ```
 
-Broker บังคับใช้ username/password โดย Backend subscribe topic `Test sensor/+`
-เช่น device `001` publish ไปที่ `Test sensor/001`
+`pressure` ไม่บังคับ ถ้าไม่ส่ง `device_id` ระบบจะใช้ค่าจาก topic
 
-ข้อมูล sensor ถูกเก็บถาวรใน SQLite ผ่าน Docker volume `sensor_data` จึงไม่หาย
-เมื่อ restart หรือ rebuild container โดย API ขอข้อมูลย้อนหลังได้สูงสุด 1,000 ค่า
-ต่อครั้ง เช่น `/api/sensors?limit=1000`
+```bash
+mosquitto_pub -h tempse.local -u <user> -P <pass> \
+  -t "Test sensor/001" -m '{"temperature":28.5,"humidity":63}'
+```
 
-ระบบตรวจพื้นที่เก็บข้อมูลทุกครั้งที่บันทึกและทุก 30 วินาทีจากหน้า Dashboard
-โดยแสดงแถบแจ้งเตือนเมื่อใช้พื้นที่ตั้งแต่ 85% ขึ้นไป ปรับเกณฑ์ได้ด้วย
-`STORAGE_WARNING_PERCENT` ใน `docker-compose.yml`
+## ค่าตั้งค่าหลัก (`docker-compose.yml` / `.env`)
 
-เมื่อพื้นที่ถึง 85% Backend จะลบข้อมูล sensor ที่เก่าที่สุดเป็นชุดจนพื้นที่ลดลง
-ถึงเป้าหมาย 80% โดยป้องกันข้อมูลล่าสุด 100 รายการไว้ ค่าทั้งหมดนี้ปรับได้ด้วย
-`STORAGE_CLEANUP_TARGET_PERCENT`, `STORAGE_CLEANUP_BATCH_SIZE` และ
-`STORAGE_MIN_READINGS`
+| ตัวแปร | ค่าเริ่มต้น | ความหมาย |
+|---|---|---|
+| `SENSOR_RETENTION_DAYS` | 31 | ลบข้อมูลที่เก่ากว่านี้ (ตรวจทุกชั่วโมง) |
+| `STORAGE_WARNING_PERCENT` | 85 | ดิสก์ถึงระดับนี้ เริ่มลบข้อมูลเก่าสุด |
+| `STORAGE_CLEANUP_TARGET_PERCENT` | 80 | ลบจนดิสก์ลดเหลือระดับนี้ |
+| `STORAGE_MIN_READINGS` | 100 | จำนวนข้อมูลล่าสุดที่ไม่ลบเสมอ |
+| `DEVICE_OFFLINE_SECONDS` | 120 | ไม่มีข้อมูลนานเท่านี้ ถือว่า offline |
+| `LINE_CHANNEL_ACCESS_TOKEN`, `LINE_CHANNEL_SECRET` | – | เปิดการแจ้งเตือนผ่าน LINE |
+| `DATA_DIR` | volume `sensor_data` | ที่เก็บฐานข้อมูล เช่น `/mnt/se-iot-data` |
 
-ข้อมูล sensor ใช้นโยบายเก็บย้อนหลัง 31 วันแบบ rolling retention โดย Backend
-ตรวจทุกชั่วโมงและลบข้อมูลที่เก่ากว่า 31 วันอัตโนมัติ ปรับได้ด้วย
-`SENSOR_RETENTION_DAYS`
+## API
+
+ดูรายละเอียดและทดลองเรียกได้ที่ `/docs`
+
+| Endpoint | ใช้ทำอะไร |
+|---|---|
+| `GET /api/health` | สถานะระบบ, MQTT, พื้นที่ดิสก์ |
+| `GET /api/devices` | sensor ทั้งหมดพร้อมค่าล่าสุด |
+| `PUT / DELETE /api/devices/{id}` | แก้ไข / ลบการตั้งค่า sensor |
+| `GET /api/sensors?from=&to=&limit=` | ข้อมูลย้อนหลัง (สูงสุด 5000 ค่า) |
+| `GET /api/alerts`, `GET /api/notifications` | ประวัติแจ้งเตือน / การส่ง LINE |
+| `POST /api/line/webhook` | webhook ของ LINE |
