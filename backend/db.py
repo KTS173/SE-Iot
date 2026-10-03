@@ -61,9 +61,18 @@ def init_db():
                 role TEXT NOT NULL DEFAULT 'member',
                 status TEXT NOT NULL DEFAULT 'pending',
                 created_at TEXT NOT NULL,
-                approved_at TEXT
+                approved_at TEXT,
+                google_id TEXT
             )
             """
+        )
+        # Databases created before Google sign-in lack the column.
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(users)")}
+        if "google_id" not in columns:
+            connection.execute("ALTER TABLE users ADD COLUMN google_id TEXT")
+        connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google "
+            "ON users(google_id) WHERE google_id IS NOT NULL"
         )
         # Signing out deletes the row, so a stolen cookie stops working at once.
         connection.execute(

@@ -37,6 +37,10 @@ services:
       ALERT_TIMEZONE: "${ALERT_TIMEZONE:-Asia/Bangkok}"
       LINE_MAX_ATTEMPTS: "${LINE_MAX_ATTEMPTS:-5}"
       LINE_RETRY_BASE_SECONDS: "${LINE_RETRY_BASE_SECONDS:-30}"
+      PUBLIC_URL: "${PUBLIC_URL:-}"
+      GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
+      GOOGLE_CLIENT_SECRET: "${GOOGLE_CLIENT_SECRET:-}"
+      GOOGLE_ALLOWED_DOMAINS: "${GOOGLE_ALLOWED_DOMAINS:-}"
     volumes:
       # Defaults to the named volume on the SD card. Set DATA_DIR in .env to an
       # absolute host path (e.g. /mnt/se-iot-data) to store readings on an

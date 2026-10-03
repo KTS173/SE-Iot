@@ -22,3 +22,14 @@ device_offline_seconds = int(os.getenv("DEVICE_OFFLINE_SECONDS", "120"))
 # Sign-in: a normal session lasts a working day, "Remember me" a month.
 session_hours = int(os.getenv("SESSION_HOURS", "8"))
 remember_days = int(os.getenv("REMEMBER_DAYS", "30"))
+
+# Google sign-in is off until both are set. PUBLIC_URL is the address people
+# open (e.g. the Tailscale Funnel URL); Google only accepts that exact redirect.
+google_client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+google_client_secret = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
+google_allowed_domains = {
+    domain.strip().lower().lstrip("@")
+    for domain in os.getenv("GOOGLE_ALLOWED_DOMAINS", "").split(",")
+    if domain.strip()
+}
+public_url = os.getenv("PUBLIC_URL", "").strip().rstrip("/")

@@ -1,11 +1,12 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Lock, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "../components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card } from "@/components/ui/card";
+import { API_URL, apiFetch } from "@/lib/api";
 import { homeFor, redirectIfSignedIn, signIn } from "@/lib/auth";
 import { toast } from "sonner";
 import { BrandLockup, GoogleIcon } from "@/components/brand";
@@ -27,12 +28,37 @@ export const Route = createFileRoute("/signin")({
   component: SignInPage,
 });
 
+// Why the backend sent someone back here from Google (/signin?error=...).
+const GOOGLE_ERRORS: Record<string, string> = {
+  google_cancelled: "Google sign-in was cancelled",
+  google_state: "Google sign-in expired. Please try again",
+  google_failed: "Google sign-in failed. Please try again",
+  google_email: "Your Google email address is not verified",
+  google_domain: "This Google account's email domain is not allowed",
+  google_unavailable: "Google sign-in is not set up yet",
+  account_disabled: "This account has been disabled",
+};
+
 function SignInPage() {
   const navigate = useNavigate();
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [googleEnabled, setGoogleEnabled] = useState(false);
+
+  useEffect(() => {
+    apiFetch("/api/auth/providers")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body: { data: { google: boolean } } | null) => setGoogleEnabled(!!body?.data.google))
+      .catch(() => setGoogleEnabled(false));
+
+    const error = new URLSearchParams(window.location.search).get("error");
+    if (error) {
+      toast.error(GOOGLE_ERRORS[error] ?? "Could not sign in");
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+  }, []);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -114,6 +140,7 @@ function SignInPage() {
             </Button>
           </form>
 
+          {googleEnabled && <>
           <div className="relative my-5">
             <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-slate-200" /></div>
             <div className="relative flex justify-center">
@@ -125,10 +152,11 @@ function SignInPage() {
             type="button"
             variant="outline"
             className="w-full rounded-xl gap-2 border-slate-200"
-            onClick={() => toast.info("Google sign-in is not configured yet")}
+            onClick={() => window.location.assign(`${API_URL}/api/auth/google/start?remember=${remember}`)}
           >
             <GoogleIcon /> Continue with Google
           </Button>
+          </>}
 
           <p className="text-sm text-center mt-6 text-muted-foreground">
             Don't have an account?{" "}

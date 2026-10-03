@@ -14,6 +14,9 @@ export interface User {
   status: UserStatus;
   created_at: string;
   approved_at: string | null;
+  /** false for an account created through Google that never set a password. */
+  has_password: boolean;
+  google_linked: boolean;
 }
 
 // The signed-in user lives on the server (an HttpOnly cookie the page cannot

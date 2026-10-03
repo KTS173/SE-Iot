@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { FieldError } from "@/components/ui/modal";
-import { changePassword as submitPasswordChange, requireApproved, updateProfile as submitProfile, useCurrentUser } from "@/lib/auth";
+import { changePassword as submitPasswordChange, refreshUser, requireApproved, updateProfile as submitProfile, useCurrentUser } from "@/lib/auth";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/settings")({ beforeLoad: requireApproved, component: SettingsPage });
@@ -66,10 +66,11 @@ function SettingsPage() {
   const changePassword = async (event: React.FormEvent) => {
     event.preventDefault();
     const errors: PasswordErrors = {};
-    if (!password.current) errors.current = "Current password is required";
+    const hasPassword = currentUser?.has_password ?? true;
+    if (hasPassword && !password.current) errors.current = "Current password is required";
     if (!password.next) errors.next = "New password is required";
     else if (password.next.length < 8) errors.next = "Password must contain at least 8 characters";
-    else if (password.next === password.current) errors.next = "New password must be different";
+    else if (hasPassword && password.next === password.current) errors.next = "New password must be different";
     if (!password.confirm) errors.confirm = "Confirm your new password";
     else if (password.next !== password.confirm) errors.confirm = "Passwords do not match";
     setPasswordErrors(errors);
@@ -77,6 +78,7 @@ function SettingsPage() {
     setSavingPassword(true);
     try {
       await submitPasswordChange(password.current, password.next);
+      await refreshUser();
       setPassword({ current: "", next: "", confirm: "" });
       toast.success("Password changed. Other devices have been signed out.");
     } catch (error) {
@@ -90,7 +92,7 @@ function SettingsPage() {
 
   return <AppShell title="Settings" subtitle="Manage your profile and account security"><div className="mx-auto max-w-4xl space-y-4">
     <form onSubmit={saveProfile}><Card className="overflow-hidden"><div className="border-b px-5 py-4"><h2 className="flex items-center gap-2 font-semibold"><UserRound className="h-4 w-4 text-blue-600"/>Personal Information</h2><p className="mt-1 text-sm text-slate-500">Update your photo and personal details</p></div><div className="p-5"><div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center"><div className="grid h-24 w-24 shrink-0 place-items-center overflow-hidden rounded-full border-4 border-white bg-blue-100 text-3xl font-bold text-blue-700 shadow">{avatar ? <img src={avatar} alt="Profile preview" className="h-full w-full object-cover"/> : profile.name.charAt(0).toUpperCase() || <UserRound className="h-8 w-8"/>}</div><div><div className="flex flex-wrap gap-2"><Button type="button" variant="outline" onClick={() => fileInput.current?.click()} className="gap-2"><Camera className="h-4 w-4"/>Change Photo</Button>{avatar && <Button type="button" variant="ghost" onClick={() => { URL.revokeObjectURL(avatar); setAvatar(null); if (fileInput.current) fileInput.current.value = ""; }} className="gap-2 text-red-600 hover:bg-red-50 hover:text-red-700"><Trash2 className="h-4 w-4"/>Remove</Button>}</div><input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp" onChange={chooseAvatar} className="hidden"/><p className="mt-2 text-xs text-slate-500">JPG, PNG or WebP. Maximum size 2 MB. Preview is temporary until a profile API is connected.</p><FieldError>{profileErrors.avatar}</FieldError></div></div><div className="grid gap-4 sm:grid-cols-2"><ProfileField label="Full name" error={profileErrors.name}><Input value={profile.name} onChange={updateProfile("name")} placeholder="Your name"/></ProfileField><ProfileField label="Username" error={profileErrors.username}><Input value={profile.username} onChange={updateProfile("username")} placeholder="username"/></ProfileField><div className="sm:col-span-2"><ProfileField label="Email address" error={profileErrors.email}><Input type="email" value={profile.email} onChange={updateProfile("email")} placeholder="you@lab.com"/></ProfileField></div></div></div><div className="flex justify-end border-t bg-slate-50 px-5 py-3"><Button type="submit" disabled={savingProfile} className="gap-2 bg-blue-600 hover:bg-blue-700"><Save className="h-4 w-4"/>{savingProfile ? "Saving..." : "Save Profile"}</Button></div></Card></form>
-    <form onSubmit={changePassword}><Card className="overflow-hidden"><div className="border-b px-5 py-4"><h2 className="flex items-center gap-2 font-semibold"><KeyRound className="h-4 w-4 text-blue-600"/>Password & Security</h2><p className="mt-1 text-sm text-slate-500">Changing your password signs out your other devices</p></div><div className="grid gap-4 p-5 sm:grid-cols-2"><div className="sm:col-span-2"><ProfileField label="Current password" error={passwordErrors.current}><Input type="password" autoComplete="current-password" value={password.current} onChange={updatePassword("current")} placeholder="Enter current password"/></ProfileField></div><ProfileField label="New password" error={passwordErrors.next}><Input type="password" autoComplete="new-password" value={password.next} onChange={updatePassword("next")} placeholder="At least 8 characters"/></ProfileField><ProfileField label="Confirm new password" error={passwordErrors.confirm}><Input type="password" autoComplete="new-password" value={password.confirm} onChange={updatePassword("confirm")} placeholder="Repeat new password"/></ProfileField></div><div className="flex justify-end border-t bg-slate-50 px-5 py-3"><Button type="submit" disabled={savingPassword} className="gap-2 bg-blue-600 hover:bg-blue-700"><KeyRound className="h-4 w-4"/>{savingPassword ? "Updating..." : "Update Password"}</Button></div></Card></form>
+    <form onSubmit={changePassword}><Card className="overflow-hidden"><div className="border-b px-5 py-4"><h2 className="flex items-center gap-2 font-semibold"><KeyRound className="h-4 w-4 text-blue-600"/>Password & Security</h2><p className="mt-1 text-sm text-slate-500">{currentUser?.has_password === false ? "You sign in with Google. Set a password to also sign in with your username." : "Changing your password signs out your other devices"}</p></div><div className="grid gap-4 p-5 sm:grid-cols-2">{currentUser?.has_password !== false && <div className="sm:col-span-2"><ProfileField label="Current password" error={passwordErrors.current}><Input type="password" autoComplete="current-password" value={password.current} onChange={updatePassword("current")} placeholder="Enter current password"/></ProfileField></div>}<ProfileField label="New password" error={passwordErrors.next}><Input type="password" autoComplete="new-password" value={password.next} onChange={updatePassword("next")} placeholder="At least 8 characters"/></ProfileField><ProfileField label="Confirm new password" error={passwordErrors.confirm}><Input type="password" autoComplete="new-password" value={password.confirm} onChange={updatePassword("confirm")} placeholder="Repeat new password"/></ProfileField></div><div className="flex justify-end border-t bg-slate-50 px-5 py-3"><Button type="submit" disabled={savingPassword} className="gap-2 bg-blue-600 hover:bg-blue-700"><KeyRound className="h-4 w-4"/>{savingPassword ? "Updating..." : "Update Password"}</Button></div></Card></form>
   </div></AppShell>;
 }
 function ProfileField({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) { return <div><Label className="mb-1.5 block text-slate-700">{label}</Label>{children}<FieldError>{error}</FieldError></div>; }

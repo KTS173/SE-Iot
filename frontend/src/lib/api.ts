@@ -1,6 +1,6 @@
 // Production uses nginx's same-origin /api proxy, so the Pi's IP/hostname does
 // not need to be baked into the frontend image.
-const API_URL = import.meta.env.VITE_API_URL || "";
+export const API_URL = import.meta.env.VITE_API_URL || "";
 
 const unauthorizedListeners = new Set<() => void>();
 

@@ -27,6 +27,9 @@ MIN_PASSWORD_LENGTH = 8
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{3,32}$")
 EMAIL_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
+# Stored for accounts created through Google: matches no password.
+NO_PASSWORD = "!"
+
 # scrypt: ~16 MB and a fraction of a second per hash, even on the Pi.
 SCRYPT_N, SCRYPT_R, SCRYPT_P = 2**14, 8, 1
 
@@ -75,6 +78,8 @@ def public_user(row):
         "status": row["status"],
         "created_at": row["created_at"],
         "approved_at": row["approved_at"],
+        "has_password": row["password_hash"] != NO_PASSWORD,
+        "google_linked": row["google_id"] is not None,
     }
 
 
@@ -114,8 +119,8 @@ def taken_error(connection, username, email, exclude_id=None):
     return "This email is already registered"
 
 
-def create_user(name, username, email, password, role="member", status="pending"):
-    """Insert a user. Returns (user, error)."""
+def create_user(name, username, email, password, role="member", status="pending", google_id=None):
+    """Insert a user; password None means Google-only. Returns (user, error)."""
     now = _now().isoformat()
     with get_db() as connection:
         error = taken_error(connection, username, email)
@@ -123,9 +128,9 @@ def create_user(name, username, email, password, role="member", status="pending"
             return None, error
         cursor = connection.execute(
             "INSERT INTO users (name, username, email, password_hash, role, status, "
-            "created_at, approved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (name, username, email, hash_password(password), role, status, now,
-             now if status == "active" else None),
+            "created_at, approved_at, google_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (name, username, email, hash_password(password) if password else NO_PASSWORD,
+             role, status, now, now if status == "active" else None, google_id),
         )
         row = connection.execute(
             "SELECT * FROM users WHERE id = ?", (cursor.lastrowid,)

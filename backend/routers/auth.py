@@ -107,11 +107,15 @@ def change_password(
     user=Depends(auth.current_user),
     payload: dict[str, Any] | None = Body(None),
 ):
-    """Needs the current password; signs out every other session."""
+    """
+    Needs the current password, except for a Google-only account setting its
+    first one. Signs out every other session.
+    """
     payload = payload or {}
     current = str(payload.get("current_password") or "")
     new = str(payload.get("new_password") or "")
-    if not auth.verify_password(current, user["password_hash"]):
+    has_password = user["password_hash"] != auth.NO_PASSWORD
+    if has_password and not auth.verify_password(current, user["password_hash"]):
         return error_response("Current password is incorrect", 400)
     error = auth.password_error(new)
     if error:

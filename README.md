@@ -72,6 +72,22 @@ docker exec -it se-iot-backend python create_admin.py
 
 - Session อยู่ได้ 8 ชั่วโมง หรือ 30 วันถ้าติ๊ก "Remember me" (`SESSION_HOURS`, `REMEMBER_DAYS`)
 
+### เข้าสู่ระบบด้วย Google (ไม่บังคับ)
+
+1. Google Cloud Console → APIs & Services → OAuth consent screen: External, scope `openid email profile`, แล้ว Publish
+2. Credentials → Create OAuth client ID → Web application
+   - Authorized redirect URI: `https://tempse.tail2afb95.ts.net/api/auth/google/callback`
+3. ใส่ใน `.env` บน Pi แล้ว `docker compose up -d --force-recreate backend`:
+
+```bash
+PUBLIC_URL=https://tempse.tail2afb95.ts.net
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+GOOGLE_ALLOWED_DOMAINS=        # เว้นว่าง = ทุกบัญชี Google (ยังต้องรออนุมัติ)
+```
+
+ปุ่ม Google จะแสดงเมื่อตั้งค่าครบ และใช้ได้เฉพาะเมื่อเปิดเว็บผ่าน URL HTTPS ด้านบน
+
 ## ส่งข้อมูลจาก sensor
 
 Publish ไปที่ topic `Test sensor/<device_id>` เป็น JSON:
