@@ -1,0 +1,120 @@
+import os
+import sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+# Set before any app module is imported: config, alerts and line_client read the
+# environment at import time, and load_dotenv never overrides a variable that is
+# already set, so a developer's real backend/.env (LINE token) cannot leak in.
+os.environ.update(
+    {
+        "DATABASE_PATH": "unused-by-tests.db",
+        "MQTT_HOST": "127.0.0.1",
+        "MQTT_PORT": "1",
+        "MQTT_TOPIC": "Test sensor/+",
+        "CORS_ORIGIN": "http://frontend.test",
+        "LINE_CHANNEL_ACCESS_TOKEN": "",
+        "LINE_CHANNEL_SECRET": "test-secret",
+        "DEVICE_OFFLINE_SECONDS": "120",
+    }
+)
+
+import alerts  # noqa: E402
+import config  # noqa: E402
+import db as db_module  # noqa: E402
+import line_client  # noqa: E402
+import storage  # noqa: E402
+
+
+class FakeDisk:
+    """Stands in for shutil.disk_usage so tests never depend on the real disk."""
+
+    def __init__(self):
+        self.used_percent = 10.0
+
+    def status(self):
+        return {
+            "used_percent": self.used_percent,
+            "free_bytes": 1_000,
+            "total_bytes": 10_000,
+            "warning_percent": config.storage_warning_percent,
+            "alert": self.used_percent >= config.storage_warning_percent,
+        }
+
+
+@pytest.fixture
+def disk(monkeypatch):
+    fake = FakeDisk()
+    monkeypatch.setattr(storage, "get_storage_status", fake.status)
+    return fake
+
+
+@pytest.fixture
+def get_db(tmp_path, monkeypatch, disk):
+    """A fresh, fully initialised database per test, wired like app startup."""
+    monkeypatch.setattr(config, "database_path", str(tmp_path / "test.db"))
+    monkeypatch.setattr(storage, "last_retention_cleanup", 0.0)
+    monkeypatch.setattr(storage, "storage_warning_logged", False)
+    db_module.init_db()
+    line_client.configure(db_module.get_db, on_delivered=alerts.mark_notified)
+    alerts.configure(db_module.get_db, notifier=line_client.notify)
+    yield db_module.get_db
+    alerts.configure(None)
+    line_client.configure(None)
+
+
+@pytest.fixture
+def client(get_db):
+    from fastapi.testclient import TestClient
+
+    import app
+
+    # No `with`: skips lifespan, so no MQTT connection or background threads.
+    return TestClient(app.app)
+
+
+def iso(minutes_ago=0):
+    return (datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)).isoformat()
+
+
+@pytest.fixture
+def add_reading(get_db):
+    def add(device_id="001", temperature=25.0, humidity=50.0, pressure=None, received_at=None):
+        with get_db() as connection:
+            cursor = connection.execute(
+                "INSERT INTO sensor_readings "
+                "(device_id, temperature, humidity, pressure, received_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (device_id, temperature, humidity, pressure, received_at or iso()),
+            )
+            return cursor.lastrowid
+
+    return add
+
+
+@pytest.fixture
+def add_config(get_db):
+    def add(device_id, name="Bench", location="Lab", **limits):
+        values = {"min_temp": 18, "max_temp": 30, "min_humidity": 35, "max_humidity": 65}
+        values.update(limits)
+        with get_db() as connection:
+            connection.execute(
+                "INSERT INTO sensor_config (device_id, name, location, x, y, "
+                "min_temp, max_temp, min_humidity, max_humidity) "
+                "VALUES (?, ?, ?, 50, 50, ?, ?, ?, ?)",
+                (device_id, name, location, values["min_temp"], values["max_temp"],
+                 values["min_humidity"], values["max_humidity"]),
+            )
+
+    return add
+
+
+def count(get_db, table, where="1=1", params=()):
+    with get_db() as connection:
+        return connection.execute(
+            f"SELECT COUNT(*) FROM {table} WHERE {where}", params
+        ).fetchone()[0]

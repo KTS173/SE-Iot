@@ -31,6 +31,18 @@ npm run dev
 
 ค่าเชื่อมต่อใส่ใน `backend/.env` และ `frontend/.env` (ดูแม่แบบใน `.env.example`)
 
+## ทดสอบ (backend)
+
+```bash
+cd backend
+pip install -r requirements-dev.txt
+pytest                                  # รันเทสต์ + รายงาน coverage
+pytest --cov-report=html                # รายงานละเอียดที่ htmlcov/index.html
+```
+
+เทสต์ใช้ฐานข้อมูลชั่วคราว ไม่ต่อ MQTT และไม่ส่ง LINE จริง
+ถ้า coverage ต่ำกว่า 85% คำสั่ง `pytest` จะ fail
+
 ## ติดตั้งบน Raspberry Pi
 
 ```bash

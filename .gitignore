@@ -16,3 +16,7 @@ ngrok-*.tgz
 tmp/
 output/
 tmp/
+# test output
+.pytest_cache/
+.coverage
+htmlcov/

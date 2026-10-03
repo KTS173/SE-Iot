@@ -1,0 +1,168 @@
+import json
+
+import pytest
+
+import line_client
+from conftest import count, iso
+from test_line_client import sign
+
+
+def test_health(client, add_reading):
+    add_reading()
+    body = client.get("/api/health").json()
+    assert body["status"] == "ok"
+    assert body["stored_readings"] == 1
+    assert body["mqtt_connected"] is False
+    assert body["mqtt_topic"] == "Test sensor/+"
+
+
+def test_latest_reading(client, add_reading):
+    assert client.get("/api/sensors/latest").json() == {"data": None}
+    add_reading("001", temperature=21)
+    add_reading("002", temperature=22)
+    assert client.get("/api/sensors/latest").json()["data"]["device_id"] == "002"
+
+
+class TestHistory:
+    @pytest.fixture(autouse=True)
+    def readings(self, add_reading):
+        for minutes_ago in (50, 40, 30, 20, 10):
+            add_reading("001", received_at=iso(minutes_ago))
+            add_reading("002", received_at=iso(minutes_ago))
+
+    def get(self, client, **params):
+        response = client.get("/api/sensors", params=params)
+        assert response.status_code == 200
+        return response.json()["data"]
+
+    def test_returns_newest_rows_oldest_first(self, client):
+        data = self.get(client, limit=3)
+        assert len(data) == 3
+        times = [row["received_at"] for row in data]
+        assert times == sorted(times)
+
+    @pytest.mark.parametrize("limit, expected", [(0, 1), (-5, 1), (99999, 10)])
+    def test_limit_is_clamped(self, client, limit, expected):
+        assert len(self.get(client, limit=limit)) == expected
+
+    def test_filters_by_time_range_and_device(self, client):
+        data = self.get(client, **{"from": iso(35), "to": iso(15), "device_id": "002", "limit": 100})
+        assert len(data) == 2
+        assert {row["device_id"] for row in data} == {"002"}
+
+    def test_non_numeric_limit_is_rejected(self, client):
+        response = client.get("/api/sensors", params={"limit": "abc"})
+        assert response.status_code == 400
+        assert response.json() == {"error": "limit must be a number"}
+
+
+def test_devices_lists_online_offline_and_configured_only(client, add_reading, add_config):
+    add_reading("001")
+    add_reading("002", received_at=iso(minutes_ago=10))
+    add_config("009", name="Silent")
+
+    devices = {d["device_id"]: d for d in client.get("/api/devices").json()["data"]}
+    assert devices["001"]["online"] is True
+    assert devices["001"]["configured"] is False
+    assert devices["002"]["online"] is False
+    assert devices["002"]["seconds_since_reading"] >= 600
+    assert devices["009"]["name"] == "Silent"
+    assert devices["009"]["temperature"] is None
+    assert devices["009"]["online"] is False
+
+
+def test_put_device_saves_settings(client):
+    response = client.put("/api/devices/001", json={"name": "Fridge", "location": "Room 2", "min_temp": 2, "max_temp": 8})
+    assert response.status_code == 200
+    assert response.json()["data"]["configured"] is True
+
+    device = client.get("/api/devices").json()["data"][0]
+    assert (device["name"], device["location"], device["max_temp"]) == ("Fridge", "Room 2", 8.0)
+
+    client.put("/api/devices/001", json={"name": "Freezer", "location": "Room 2"})
+    assert client.get("/api/devices").json()["data"][0]["name"] == "Freezer"
+
+
+@pytest.mark.parametrize(
+    "kwargs, message",
+    [
+        ({"json": {"location": "Lab"}}, "name is required"),
+        ({"json": {"name": "A", "location": "B", "x": "abc"}}, "x must be a number"),
+        ({"content": "not json", "headers": {"Content-Type": "application/json"}},
+         "request body must be valid JSON"),
+        ({"json": [1, 2]}, "request body must be a JSON object"),
+    ],
+)
+def test_put_device_rejects_bad_input(client, kwargs, message):
+    response = client.put("/api/devices/001", **kwargs)
+    assert response.status_code == 400
+    assert response.json() == {"error": message}
+
+
+def test_delete_device_keeps_readings_unless_purged(client, get_db, add_reading, add_config):
+    add_config("001")
+    add_reading("001")
+
+    assert client.delete("/api/devices/001").json()["data"]["purged_readings"] is False
+    assert count(get_db, "sensor_config") == 0
+    assert count(get_db, "sensor_readings") == 1
+
+    client.delete("/api/devices/001", params={"purge": "true"})
+    assert count(get_db, "sensor_readings") == 0
+
+
+def test_alerts_and_notifications_endpoints(client, add_config):
+    import ingest
+    add_config("001", max_temp=30)
+    ingest.save_reading({"device_id": "001", "temperature": 35, "humidity": 50})
+
+    active = client.get("/api/alerts").json()["data"]
+    assert [a["kind"] for a in active] == ["temp_high"]
+    assert len(client.get("/api/alerts", params={"status": "all", "limit": 1}).json()["data"]) == 1
+    assert client.get("/api/notifications").json()["data"][0]["status"] == "skipped"
+
+
+@pytest.mark.parametrize("path", ["/api/alerts", "/api/notifications"])
+def test_list_limit_must_be_numeric(client, path):
+    response = client.get(path, params={"limit": "abc"})
+    assert response.status_code == 400
+    assert response.json() == {"error": "limit must be a number"}
+
+
+def test_webhook_rejects_unsigned_requests(client):
+    response = client.post("/api/line/webhook", content=b'{"events": []}')
+    assert response.status_code == 403
+    assert line_client.active_recipients() == []
+
+
+def test_webhook_registers_follower(client, monkeypatch):
+    monkeypatch.setattr(line_client, "fetch_display_name", lambda user_id: None)
+    body = json.dumps({"events": [{"type": "follow", "source": {"userId": "U1"}}]}).encode()
+
+    response = client.post("/api/line/webhook", content=body, headers={"X-Line-Signature": sign(body)})
+    assert response.json() == {"status": "ok"}
+    assert line_client.active_recipients() == ["U1"]
+
+
+def test_webhook_ignores_malformed_body_but_answers_ok(client):
+    body = b"not json"
+    response = client.post("/api/line/webhook", content=body, headers={"X-Line-Signature": sign(body)})
+    assert response.status_code == 200
+
+
+def test_line_status_and_test_push_without_credentials(client):
+    status = client.get("/api/line/status").json()["data"]
+    assert status == {"configured": False, "recipients": [], "active_alerts": 0, "deliveries": {}}
+
+    response = client.post("/api/line/test")
+    assert response.status_code == 502
+    assert response.json()["error"] == "LINE credentials are not configured"
+
+
+def test_cors_allows_configured_origin_only(client):
+    headers = {"Access-Control-Request-Method": "PUT"}
+    allowed = client.options("/api/devices/1", headers={**headers, "Origin": "http://frontend.test"})
+    assert allowed.headers["access-control-allow-origin"] == "http://frontend.test"
+
+    blocked = client.options("/api/devices/1", headers={**headers, "Origin": "http://evil.test"})
+    assert "access-control-allow-origin" not in blocked.headers

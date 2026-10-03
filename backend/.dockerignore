@@ -3,3 +3,9 @@ __pycache__/
 *.pyc
 .env
 .DS_Store
+tests/
+pytest.ini
+.coveragerc
+requirements-dev.txt
+.pytest_cache/
+.coverage
