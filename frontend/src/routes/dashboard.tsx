@@ -13,11 +13,12 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import type { DateRange } from "react-day-picker";
+import type { AxisDomain } from "recharts/types/util/types";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine,
 } from "recharts";
 import { requireApproved, useCurrentUser } from "@/lib/auth";
-import { useLiveSensors, useRangeComparison, type Sensor,} from "@/lib/sensors";
+import { saveAlertRange, useLiveSensors, useRangeComparison, type Sensor } from "@/lib/sensors";
 import { BrandMark, APP_NAME } from "@/components/brand";
 import { MobileNavigation, useLogout } from "@/components/app-shell";
 import { toast } from "sonner";
@@ -41,10 +42,31 @@ export const Route = createFileRoute("/dashboard")({
 const SENSOR_COLORS = ["#2563eb", "#16a34a", "#9333ea", "#f97316", "#ef4444", "#0d9488"];
 type Preset = "1h" | "6h" | "today" | "7d" | "30d" | "custom";
 type Health = "normal" | "warning" | "offline";
-type ChartScale = { axisMin: string; axisMax: string; upperLimit: string };
+/** Chart zoom: a per-browser view setting, not an alert threshold. */
+type ChartScale = { axisMin: string; axisMax: string };
 type Metric = "temperature" | "humidity";
+/** What the "Custom" editor holds: the zoom plus (admins) the alert range. */
+type ChartDraft = ChartScale & { alertMin: string; alertMax: string };
+/** The alert range shared by all sensors, or "mixed" when they differ. */
+type AlertRange = { min: number; max: number } | "mixed" | null;
 
-const EMPTY_SCALE: ChartScale = { axisMin: "", axisMax: "", upperLimit: "" };
+const EMPTY_DRAFT: ChartDraft = { axisMin: "", axisMax: "", alertMin: "", alertMax: "" };
+
+function alertRangeOf(sensors: Sensor[], metric: Metric): AlertRange {
+  if (sensors.length === 0) return null;
+  const ranges = sensors.map((s) => metric === "temperature" ? [s.minTemp, s.maxTemp] : [s.minHumidity, s.maxHumidity]);
+  const [min, max] = ranges[0];
+  return ranges.every(([low, high]) => low === min && high === max) ? { min, max } : "mixed";
+}
+
+function draftFor(scale: ChartScale | null, range: AlertRange): ChartDraft {
+  return {
+    axisMin: scale?.axisMin ?? "",
+    axisMax: scale?.axisMax ?? "",
+    alertMin: range && range !== "mixed" ? String(range.min) : "",
+    alertMax: range && range !== "mixed" ? String(range.max) : "",
+  };
+}
 
 function health(s: Sensor): Health {
   if (s.status === "Offline") return "offline";
@@ -88,13 +110,31 @@ function rangeFor(preset: Preset, custom: DateRange | undefined): { from: Date; 
   }
 }
 
+/** A pair of number fields: both empty (unset) or both numbers with low < high. */
+function pairError(low: string, high: string): string | null {
+  if (low.trim() === "" && high.trim() === "") return null;
+  const [a, b] = [Number(low), Number(high)];
+  if (low.trim() === "" || high.trim() === "" || !Number.isFinite(a) || !Number.isFinite(b)) return "Fill in both values";
+  return a < b ? null : "Min must be lower than max";
+}
+
 function scaleIsValid(scale: ChartScale): boolean {
-  const { axisMin, axisMax, upperLimit } = scale;
-  if ([axisMin, axisMax, upperLimit].some((value) => value.trim() === "")) return false;
-  const [axisLow, axisHigh, limit] = [axisMin, axisMax, upperLimit].map(Number);
-  return [axisLow, axisHigh, limit].every(Number.isFinite)
-    && axisLow < limit
-    && limit < axisHigh;
+  return scale.axisMin.trim() !== "" && pairError(scale.axisMin, scale.axisMax) === null;
+}
+
+/**
+ * Manual zoom wins. Otherwise fit the data but always include the alert range,
+ * so the dashed limit lines stay on the chart even when readings sit far inside.
+ */
+function yDomain(scale: ChartScale | null, alert: AlertRange): AxisDomain {
+  if (scale) return [Number(scale.axisMin), Number(scale.axisMax)];
+  if (!alert || alert === "mixed") return ["auto", "auto"];
+  const { min, max } = alert;
+  const pad = Math.max(1, (max - min) * 0.1);
+  return ([dataMin, dataMax]: [number, number]) => [
+    Math.floor(Math.min(Number.isFinite(dataMin) ? dataMin : min, min) - pad),
+    Math.ceil(Math.max(Number.isFinite(dataMax) ? dataMax : max, max) + pad),
+  ];
 }
 
 function chartTicks(scale: ChartScale | null): number[] | undefined {
@@ -126,8 +166,9 @@ function Dashboard() {
   const [activeId, setActiveId] = useState(1);
   const [temperatureScale, setTemperatureScale] = useState<ChartScale | null>(null);
   const [humidityScale, setHumidityScale] = useState<ChartScale | null>(null);
-  const [temperatureDraft, setTemperatureDraft] = useState<ChartScale>(EMPTY_SCALE);
-  const [humidityDraft, setHumidityDraft] = useState<ChartScale>(EMPTY_SCALE);
+  const [temperatureDraft, setTemperatureDraft] = useState<ChartDraft>(EMPTY_DRAFT);
+  const [humidityDraft, setHumidityDraft] = useState<ChartDraft>(EMPTY_DRAFT);
+  const [savingScale, setSavingScale] = useState(false);
   const [editingScale, setEditingScale] = useState<Metric | null>(null);
   const [preset, setPreset] = useState<Preset>("7d");
   const [customRange, setCustomRange] = useState<DateRange | undefined>();
@@ -138,15 +179,11 @@ function Dashboard() {
       try {
         const saved = localStorage.getItem(`dashboard-chart-range-${metric}`);
         if (!saved) continue;
-        const parsed = JSON.parse(saved) as ChartScale;
+        const { axisMin, axisMax } = JSON.parse(saved) as ChartScale;
+        const parsed = { axisMin: String(axisMin), axisMax: String(axisMax) };
         if (!scaleIsValid(parsed)) continue;
-        if (metric === "temperature") {
-          setTemperatureScale(parsed);
-          setTemperatureDraft(parsed);
-        } else {
-          setHumidityScale(parsed);
-          setHumidityDraft(parsed);
-        }
+        if (metric === "temperature") setTemperatureScale(parsed);
+        else setHumidityScale(parsed);
       } catch {
         // Ignore invalid or unavailable local settings.
       }
@@ -176,22 +213,44 @@ function Dashboard() {
     : `${format(from, "d MMM")} – ${format(to, "d MMM yyyy")}`;
   const temperatureHistory = useRangeComparison(sensors, from, to, "temperature");
   const humidityHistory = useRangeComparison(sensors, from, to, "humidity");
-  const saveChartScale = (metric: Metric) => {
+  const temperatureAlert = alertRangeOf(sensors, "temperature");
+  const humidityAlert = alertRangeOf(sensors, "humidity");
+  const saveChartScale = async (metric: Metric) => {
     const draft = metric === "temperature" ? temperatureDraft : humidityDraft;
-    if (!scaleIsValid(draft)) {
-      toast.error("Set a valid axis and normal range before saving");
-      return;
-    }
+    const current = metric === "temperature" ? temperatureAlert : humidityAlert;
+    const label = metric === "temperature" ? "Temperature" : "Humidity";
+    if (pairError(draft.axisMin, draft.axisMax) || (permissions.canManageSensors && pairError(draft.alertMin, draft.alertMax))) return;
+
+    // Chart zoom: this browser only. Both empty = automatic.
+    const scale = draft.axisMin.trim() === "" ? null : { axisMin: draft.axisMin, axisMax: draft.axisMax };
     try {
-      localStorage.setItem(`dashboard-chart-range-${metric}`, JSON.stringify(draft));
+      if (scale) localStorage.setItem(`dashboard-chart-range-${metric}`, JSON.stringify(scale));
+      else localStorage.removeItem(`dashboard-chart-range-${metric}`);
     } catch {
-      toast.error("Could not save chart range in this browser");
-      return;
+      // Zoom still applies until reload.
     }
-    if (metric === "temperature") setTemperatureScale(draft);
-    else setHumidityScale(draft);
+    if (metric === "temperature") setTemperatureScale(scale);
+    else setHumidityScale(scale);
+
+    // Alert range: server-side, every sensor, admins only.
+    const [alertMin, alertMax] = [Number(draft.alertMin), Number(draft.alertMax)];
+    const alertChanged = permissions.canManageSensors && draft.alertMin.trim() !== ""
+      && (current === null || current === "mixed" || current.min !== alertMin || current.max !== alertMax);
+    if (alertChanged) {
+      setSavingScale(true);
+      try {
+        await saveAlertRange(metric, alertMin, alertMax);
+        toast.success(`${label} alert range set to ${alertMin}–${alertMax} for all sensors`);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Could not save alert range");
+        return;
+      } finally {
+        setSavingScale(false);
+      }
+    } else {
+      toast.success(`${label} chart view saved`);
+    }
     setEditingScale(null);
-    toast.success(`${metric === "temperature" ? "Temperature" : "Humidity"} range saved`);
   };
   const online = sensors.filter((sensor) => sensor.status === "Online");
   const withTemp = online.filter((sensor) => sensor.temperature != null);
@@ -223,42 +282,53 @@ function Dashboard() {
             </div>
             <div className="grid min-h-0 flex-1 grid-rows-2 gap-2">
               {([
-                { metric: "temperature", title: "Temperature", unit: "°C", data: temperatureHistory, scale: temperatureScale, draft: temperatureDraft, setDraft: setTemperatureDraft, step: "0.1", Icon: Thermometer, iconTone: "bg-orange-50 text-orange-600" },
-                { metric: "humidity", title: "Humidity", unit: "%RH", data: humidityHistory, scale: humidityScale, draft: humidityDraft, setDraft: setHumidityDraft, step: "1", Icon: Droplets, iconTone: "bg-sky-50 text-sky-600" },
-              ] as const).map(({ metric, title, unit, data, scale, draft, setDraft, step, Icon, iconTone }) => (
+                { metric: "temperature", title: "Temperature", unit: "°C", data: temperatureHistory, scale: temperatureScale, alert: temperatureAlert, draft: temperatureDraft, setDraft: setTemperatureDraft, step: "0.1", Icon: Thermometer, iconTone: "bg-orange-50 text-orange-600" },
+                { metric: "humidity", title: "Humidity", unit: "%RH", data: humidityHistory, scale: humidityScale, alert: humidityAlert, draft: humidityDraft, setDraft: setHumidityDraft, step: "1", Icon: Droplets, iconTone: "bg-sky-50 text-sky-600" },
+              ] as const).map(({ metric, title, unit, data, scale, alert, draft, setDraft, step, Icon, iconTone }) => {
+                const axisError = pairError(draft.axisMin, draft.axisMax);
+                const alertError = permissions.canManageSensors ? pairError(draft.alertMin, draft.alertMax) : null;
+                return (
                 <section key={title} className="flex min-h-[120px] min-w-0 flex-col border-t pt-2 first:border-t-0 first:pt-0">
                   <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <span className={cn("grid h-7 w-7 shrink-0 place-items-center rounded-lg", iconTone)}><Icon className="h-4 w-4" aria-hidden="true"/></span>
                       <h3 className="text-sm font-bold tracking-tight text-slate-800">{title}</h3>
                       <span className="text-[10px] font-medium text-slate-500">{unit}</span>
-                      {scale && <span className="text-[10px] text-red-600">- - - Max limit: {scale.upperLimit}{unit}</span>}
+                      {alert && alert !== "mixed" && <span className="text-[10px] text-red-600">- - - Alert below {alert.min}{unit} / above {alert.max}{unit}</span>}
+                      {alert === "mixed" && <span className="text-[10px] text-amber-600">Alert range differs per sensor</span>}
                     </div>
                     <div className="flex flex-wrap items-center gap-1.5">
                       <button type="button" onClick={() => {
                         if (editingScale === metric) setEditingScale(null);
                         else {
-                          setDraft(scale ?? EMPTY_SCALE);
+                          setDraft(draftFor(scale, alert));
                           setEditingScale(metric);
                         }
                       }} className="rounded-md border border-slate-200 px-2.5 py-1 text-[10px] font-medium text-slate-700 hover:bg-slate-50">Custom</button>
                     </div>
                   </div>
                   {editingScale === metric && <div className="mb-1 flex flex-wrap items-end gap-x-3 gap-y-1 rounded-lg bg-slate-50 px-2 py-1.5">
+                    <span className="text-[10px] font-semibold text-slate-600">Chart zoom</span>
                     <label className="flex items-center gap-1 text-[10px] text-slate-500">Min<Input aria-label={`${title} axis minimum`} type="number" step={step} value={draft.axisMin} onChange={(event) => setDraft((current) => ({ ...current, axisMin: event.target.value }))} className="h-7 w-[4.25rem] px-1.5 text-xs"/></label>
                     <label className="flex items-center gap-1 text-[10px] text-slate-500">Max<Input aria-label={`${title} axis maximum`} type="number" step={step} value={draft.axisMax} onChange={(event) => setDraft((current) => ({ ...current, axisMax: event.target.value }))} className="h-7 w-[4.25rem] px-1.5 text-xs"/></label>
-                    <label className="flex items-center gap-1 text-[10px] text-red-600">Max limit<Input aria-label={`${title} maximum limit`} type="number" step={step} value={draft.upperLimit} onChange={(event) => setDraft((current) => ({ ...current, upperLimit: event.target.value }))} className="h-7 w-[4.25rem] px-1.5 text-xs"/></label>
-                    <Button type="button" size="sm" disabled={!scaleIsValid(draft)} onClick={() => saveChartScale(metric)} className="h-7 px-3 text-[10px]">Save</Button>
-                    {!scaleIsValid(draft) && <span className="text-[10px] text-slate-500">Min &lt; Max limit &lt; Max</span>}
+                    {permissions.canManageSensors && <>
+                      <span className="text-[10px] font-semibold text-red-600">Alert all sensors when</span>
+                      <label className="flex items-center gap-1 text-[10px] text-red-600">below<Input aria-label={`${title} alert minimum`} type="number" step={step} value={draft.alertMin} onChange={(event) => setDraft((current) => ({ ...current, alertMin: event.target.value }))} className="h-7 w-[4.25rem] px-1.5 text-xs"/></label>
+                      <label className="flex items-center gap-1 text-[10px] text-red-600">above<Input aria-label={`${title} alert maximum`} type="number" step={step} value={draft.alertMax} onChange={(event) => setDraft((current) => ({ ...current, alertMax: event.target.value }))} className="h-7 w-[4.25rem] px-1.5 text-xs"/></label>
+                    </>}
+                    <Button type="button" size="sm" disabled={Boolean(axisError || alertError) || savingScale} onClick={() => saveChartScale(metric)} className="h-7 px-3 text-[10px]">{savingScale ? "Saving..." : "Save"}</Button>
+                    {(axisError || alertError) && <span className="text-[10px] text-slate-500">{axisError ? `Zoom: ${axisError}` : `Alert: ${alertError}`}</span>}
+                    {!axisError && !alertError && <span className="text-[10px] text-slate-400">Leave zoom empty for automatic</span>}
                   </div>}
                   <div className="min-h-0 flex-1">
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={data} syncId="sensor-trends" margin={{top:4,right:12,left:-10,bottom:0}}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false}/>
-                        {scale && <ReferenceLine y={Number(scale.upperLimit)} stroke="#f87171" strokeDasharray="4 4" strokeWidth={1.25}/>}
+                        {alert && alert !== "mixed" && <ReferenceLine y={alert.max} stroke="#f87171" strokeDasharray="4 4" strokeWidth={1.25}/>}
+                        {alert && alert !== "mixed" && <ReferenceLine y={alert.min} stroke="#f87171" strokeDasharray="4 4" strokeWidth={1.25}/>}
                         {scale && <ReferenceLine y={Number(scale.axisMin)} stroke="transparent" strokeWidth={0} ifOverflow="visible" label={{ value: `${scale.axisMin}${unit}`, position: "left", dy: -8, fill: "#64748b", fontSize: 10 }}/>}
                         <XAxis dataKey="time" fontSize={10} tickLine={false} axisLine={false} minTickGap={40} hide={title === "Temperature"}/>
-                        <YAxis domain={scale ? [Number(scale.axisMin), Number(scale.axisMax)] : ["auto", "auto"]} ticks={chartTicks(scale)} interval={0} minTickGap={0} allowDataOverflow={Boolean(scale)} tick={<ChartYAxisTick unit={unit}/>} tickLine={false} axisLine={false}/>
+                        <YAxis domain={yDomain(scale, alert)} ticks={chartTicks(scale)} interval={0} minTickGap={0} allowDataOverflow={Boolean(scale)} tick={<ChartYAxisTick unit={unit}/>} tickLine={false} axisLine={false}/>
                         <Tooltip labelStyle={{fontWeight:600}} formatter={(value) => [`${value} ${unit}`, ""]}/>
                         <Legend wrapperStyle={{fontSize:10}} iconType="circle" iconSize={6}/>
                         {sensors.map((sensor,index)=><Line key={sensor.id} type="monotone" dataKey={`s${sensor.id}`} stroke={SENSOR_COLORS[index%6]} strokeOpacity={sensor.id===activeId?1:0.55} strokeWidth={sensor.id===activeId?2.75:1.75} dot={false} activeDot={{r:4}} name={sensor.name}/>) }
@@ -266,7 +336,8 @@ function Dashboard() {
                     </ResponsiveContainer>
                   </div>
                 </section>
-              ))}
+                );
+              })}
             </div>
           </Card>
           <div className="grid min-h-0 gap-4 md:grid-cols-[minmax(0,1.3fr)_minmax(300px,1fr)]">

@@ -8,7 +8,7 @@ import auth
 import config
 from db import get_db, row_to_reading
 from routers import error_response
-from sensor_config import read_config_payload, row_to_config
+from sensor_config import default_thresholds, read_config_payload, row_to_config
 
 router = APIRouter()
 
@@ -36,6 +36,7 @@ def devices():
             row["device_id"]: row
             for row in connection.execute("SELECT * FROM sensor_config").fetchall()
         }
+        defaults = default_thresholds(connection)
 
     now = datetime.now(timezone.utc)
     payload = []
@@ -56,7 +57,7 @@ def devices():
                 age = None
         reading["online"] = age is not None and age <= config.device_offline_seconds
         reading["seconds_since_reading"] = None if age is None else round(age)
-        reading.update(row_to_config(configs.get(device_id), device_id))
+        reading.update(row_to_config(configs.get(device_id), device_id, defaults))
         payload.append(reading)
     return {"data": payload, "offline_after_seconds": config.device_offline_seconds}
 

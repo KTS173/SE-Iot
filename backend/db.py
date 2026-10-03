@@ -88,6 +88,10 @@ def init_db():
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)"
         )
+        # Small key/value store, e.g. the default alert thresholds.
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+        )
         alerts.init_alert_tables(connection)
         line_client.init_line_tables(connection)
     with get_db() as connection:

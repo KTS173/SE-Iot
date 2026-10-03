@@ -7,7 +7,19 @@ CONFIG_DEFAULTS = {
 }
 
 
-def row_to_config(row, device_id):
+THRESHOLD_KEYS = ("min_temp", "max_temp", "min_humidity", "max_humidity")
+METRIC_KEYS = {"temperature": ("min_temp", "max_temp"), "humidity": ("min_humidity", "max_humidity")}
+
+
+def default_thresholds(connection):
+    """Alert range for sensors without their own settings; admins change it."""
+    stored = dict(connection.execute(
+        "SELECT key, value FROM settings WHERE key IN (?, ?, ?, ?)", THRESHOLD_KEYS
+    ).fetchall())
+    return {key: float(stored.get(key, CONFIG_DEFAULTS[key])) for key in THRESHOLD_KEYS}
+
+
+def row_to_config(row, device_id, defaults=None):
     """Stored presentation/threshold settings, or defaults for a new device."""
     if row is None:
         return {
@@ -15,6 +27,7 @@ def row_to_config(row, device_id):
             "location": "Unassigned",
             "configured": False,
             **CONFIG_DEFAULTS,
+            **(defaults or {}),
         }
     config = {key: row[key] for key in CONFIG_DEFAULTS}
     config.update(name=row["name"], location=row["location"], configured=True)

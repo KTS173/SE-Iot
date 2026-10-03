@@ -20,6 +20,10 @@ os.environ.update(
         "LINE_CHANNEL_ACCESS_TOKEN": "",
         "LINE_CHANNEL_SECRET": "test-secret",
         "DEVICE_OFFLINE_SECONDS": "120",
+        "GOOGLE_CLIENT_ID": "",
+        "GOOGLE_CLIENT_SECRET": "",
+        "GOOGLE_ALLOWED_DOMAINS": "",
+        "PUBLIC_URL": "",
     }
 )
 

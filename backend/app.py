@@ -28,7 +28,7 @@ import storage
 from db import get_db, init_db
 from ingest import mqtt_client
 from routers import auth as auth_routes
-from routers import devices, error_response, google, line, notifications, sensors, users
+from routers import devices, error_response, google, line, notifications, sensors, thresholds, users
 
 
 @asynccontextmanager
@@ -51,7 +51,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-for module in (auth_routes, google, users, sensors, devices, notifications, line):
+for module in (auth_routes, google, users, sensors, devices, thresholds, notifications, line):
     app.include_router(module.router)
 
 

@@ -5,7 +5,7 @@ import alerts
 import storage
 from db import get_db
 from mqtt_client import SensorMqttClient
-from sensor_config import row_to_config
+from sensor_config import default_thresholds, row_to_config
 
 
 def evaluate_alerts(reading):
@@ -15,7 +15,8 @@ def evaluate_alerts(reading):
         row = connection.execute(
             "SELECT * FROM sensor_config WHERE device_id = ?", (device_id,)
         ).fetchone()
-    config = row_to_config(row, device_id)
+        defaults = default_thresholds(connection)
+    config = row_to_config(row, device_id, defaults)
     try:
         alerts.evaluate_reading(
             device_id, reading["temperature"], reading["humidity"], config
