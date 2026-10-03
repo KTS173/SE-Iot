@@ -230,6 +230,7 @@ def evaluate_offline(offline_seconds):
             """
             SELECT device_id, MAX(received_at) AS last_seen
             FROM sensor_readings
+            WHERE device_id NOT IN (SELECT device_id FROM removed_devices)
             GROUP BY device_id
             HAVING last_seen < ?
             """,

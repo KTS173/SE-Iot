@@ -88,6 +88,12 @@ def init_db():
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)"
         )
+        # Deleted sensors. Their readings stay for history, so without this list
+        # a deleted sensor would reappear from its old data.
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS removed_devices "
+            "(device_id TEXT PRIMARY KEY, removed_at TEXT NOT NULL)"
+        )
         # Small key/value store, e.g. the default alert thresholds.
         connection.execute(
             "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)"

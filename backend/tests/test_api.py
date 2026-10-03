@@ -166,3 +166,48 @@ def test_cors_allows_configured_origin_only(client):
 
     blocked = client.options("/api/devices/1", headers={**headers, "Origin": "http://evil.test"})
     assert "access-control-allow-origin" not in blocked.headers
+
+
+def device_ids(client):
+    return [d["device_id"] for d in client.get("/api/devices").json()["data"]]
+
+
+def test_deleted_sensor_stays_gone_even_with_old_readings(client, add_reading, add_config):
+    add_config("001")
+    add_reading("001")
+    add_reading("002")
+
+    client.delete("/api/devices/001")
+    assert device_ids(client) == ["002"]
+
+
+def test_deleted_sensor_returns_when_it_reports_again(client, add_reading):
+    import ingest
+    add_reading("001")
+    client.delete("/api/devices/001")
+    assert device_ids(client) == []
+
+    ingest.save_reading({"device_id": "001", "temperature": 25, "humidity": 50})
+    assert device_ids(client) == ["001"]
+
+
+def test_re_adding_a_deleted_sensor_brings_it_back(client, add_reading):
+    add_reading("001")
+    client.delete("/api/devices/001")
+    client.put("/api/devices/001", json={"name": "Back", "location": "Lab"})
+    assert device_ids(client) == ["001"]
+
+
+def test_deleting_closes_its_alerts_and_stops_offline_alerts(client, add_reading, add_config):
+    import alerts
+    import ingest
+    from conftest import iso
+    add_config("001", max_temp=30)
+    ingest.save_reading({"device_id": "001", "temperature": 40, "humidity": 50})
+    add_reading("002", received_at=iso(minutes_ago=10))
+    assert {a["device_id"] for a in alerts.list_alerts()} == {"001"}
+
+    client.delete("/api/devices/001")
+    client.delete("/api/devices/002")
+    assert alerts.list_alerts() == []
+    assert alerts.evaluate_offline(offline_seconds=120) == []

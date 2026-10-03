@@ -37,10 +37,14 @@ def devices():
             for row in connection.execute("SELECT * FROM sensor_config").fetchall()
         }
         defaults = default_thresholds(connection)
+        removed = {
+            row["device_id"]
+            for row in connection.execute("SELECT device_id FROM removed_devices").fetchall()
+        }
 
     now = datetime.now(timezone.utc)
     payload = []
-    for device_id in sorted(set(readings) | set(configs)):
+    for device_id in sorted((set(readings) | set(configs)) - removed):
         row = readings.get(device_id)
         reading = row_to_reading(row) or {
             "device_id": device_id,
@@ -70,6 +74,7 @@ def upsert_device(device_id: str, payload: dict[str, Any] | None = Body(None)):
         return error_response(error, 400)
 
     with get_db() as connection:
+        connection.execute("DELETE FROM removed_devices WHERE device_id = ?", (device_id,))
         connection.execute(
             """
             INSERT INTO sensor_config
@@ -95,11 +100,23 @@ def upsert_device(device_id: str, payload: dict[str, Any] | None = Body(None)):
 @router.delete("/api/devices/{device_id}", dependencies=[Depends(auth.admin_user)])
 def delete_device(device_id: str, purge: bool = False):
     """
-    Remove a sensor's settings. Readings are kept unless ?purge=true, so
-    deleting a mis-typed entry never destroys measurement history.
+    Remove a sensor from the dashboard, its settings and its open alerts.
+    Readings are kept unless ?purge=true, so deleting a mis-typed entry never
+    destroys measurement history. A sensor that reports again reappears.
     """
+    now = datetime.now(timezone.utc).isoformat()
     with get_db() as connection:
         connection.execute("DELETE FROM sensor_config WHERE device_id = ?", (device_id,))
+        connection.execute(
+            "INSERT INTO removed_devices (device_id, removed_at) VALUES (?, ?) "
+            "ON CONFLICT(device_id) DO UPDATE SET removed_at = excluded.removed_at",
+            (device_id, now),
+        )
+        # Closed quietly: nobody needs a LINE message about a removed sensor.
+        connection.execute(
+            "UPDATE alerts SET closed_at = ? WHERE device_id = ? AND closed_at IS NULL",
+            (now, device_id),
+        )
         if purge:
             connection.execute(
                 "DELETE FROM sensor_readings WHERE device_id = ?", (device_id,)

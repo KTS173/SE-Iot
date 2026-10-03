@@ -36,6 +36,8 @@ def save_reading(payload):
         "received_at": datetime.now(timezone.utc).isoformat(),
     }
     with get_db() as connection:
+        # A deleted sensor that is still sending is evidently in use again.
+        connection.execute("DELETE FROM removed_devices WHERE device_id = ?", (reading["device_id"],))
         connection.execute(
             """
             INSERT INTO sensor_readings
