@@ -1,21 +1,20 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { CheckCircle2, Clock, MessageSquareText, RefreshCw, Send, Users, XCircle } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { apiFetch } from "@/lib/api";
 import { toast } from "sonner";
-import { canAccessRoute } from "@/lib/roles";
+import { requireApproved, useCurrentUser } from "@/lib/auth";
+import { permissionsFor } from "@/lib/roles";
 
 export const Route = createFileRoute("/line-log")({
-  beforeLoad: () => {
-    if (!canAccessRoute("/line-log")) throw redirect({ to: "/dashboard" });
-  },
+  beforeLoad: requireApproved,
   component: LineLogPage,
 });
 
-const API_URL = import.meta.env.VITE_API_URL || "";
 
 type DeliveryStatus = "pending" | "sent" | "failed" | "skipped";
 
@@ -62,12 +61,13 @@ function LineLogPage() {
   const [filter, setFilter] = useState<"all" | DeliveryStatus>("all");
   const [loading, setLoading] = useState(true);
   const [testing, setTesting] = useState(false);
+  const { canSendLineTest } = permissionsFor(useCurrentUser());
 
   const load = useCallback(async () => {
     try {
       const [logResponse, statusResponse] = await Promise.all([
-        fetch(`${API_URL}/api/notifications?limit=200`),
-        fetch(`${API_URL}/api/line/status`),
+        apiFetch(`/api/notifications?limit=200`),
+        apiFetch(`/api/line/status`),
       ]);
       if (logResponse.ok) setDeliveries(((await logResponse.json()) as { data: Delivery[] }).data);
       if (statusResponse.ok) setStatus(((await statusResponse.json()) as { data: LineStatus }).data);
@@ -87,7 +87,7 @@ function LineLogPage() {
   const sendTest = async () => {
     setTesting(true);
     try {
-      const response = await fetch(`${API_URL}/api/line/test`, { method: "POST" });
+      const response = await apiFetch(`/api/line/test`, { method: "POST" });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? "Test message failed");
       toast.success(`Test message sent to ${body.data.sent} recipient(s)`);
@@ -148,10 +148,12 @@ function LineLogPage() {
               <RefreshCw className="h-3.5 w-3.5" />
               Refresh
             </Button>
-            <Button size="sm" onClick={sendTest} disabled={testing} className="gap-1.5 bg-blue-600 hover:bg-blue-700">
-              <Send className="h-3.5 w-3.5" />
-              {testing ? "Sending..." : "Send test"}
-            </Button>
+            {canSendLineTest && (
+              <Button size="sm" onClick={sendTest} disabled={testing} className="gap-1.5 bg-blue-600 hover:bg-blue-700">
+                <Send className="h-3.5 w-3.5" />
+                {testing ? "Sending..." : "Send test"}
+              </Button>
+            )}
           </div>
         </div>
 

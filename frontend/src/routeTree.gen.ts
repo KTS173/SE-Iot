@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as LineLogRouteImport } from './routes/line-log'
 import { Route as MembersRouteImport } from './routes/members'
+import { Route as PendingRouteImport } from './routes/pending'
 import { Route as SensorsRouteImport } from './routes/sensors'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SigninRouteImport } from './routes/signin'
@@ -36,6 +37,11 @@ const LineLogRoute = LineLogRouteImport.update({
 const MembersRoute = MembersRouteImport.update({
   id: '/members',
   path: '/members',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PendingRoute = PendingRouteImport.update({
+  id: '/pending',
+  path: '/pending',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SensorsRoute = SensorsRouteImport.update({
@@ -64,6 +70,7 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof DashboardRoute
   '/line-log': typeof LineLogRoute
   '/members': typeof MembersRoute
+  '/pending': typeof PendingRoute
   '/sensors': typeof SensorsRoute
   '/settings': typeof SettingsRoute
   '/signin': typeof SigninRoute
@@ -74,6 +81,7 @@ export interface FileRoutesByTo {
   '/dashboard': typeof DashboardRoute
   '/line-log': typeof LineLogRoute
   '/members': typeof MembersRoute
+  '/pending': typeof PendingRoute
   '/sensors': typeof SensorsRoute
   '/settings': typeof SettingsRoute
   '/signin': typeof SigninRoute
@@ -85,6 +93,7 @@ export interface FileRoutesById {
   '/dashboard': typeof DashboardRoute
   '/line-log': typeof LineLogRoute
   '/members': typeof MembersRoute
+  '/pending': typeof PendingRoute
   '/sensors': typeof SensorsRoute
   '/settings': typeof SettingsRoute
   '/signin': typeof SigninRoute
@@ -97,6 +106,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/line-log'
     | '/members'
+    | '/pending'
     | '/sensors'
     | '/settings'
     | '/signin'
@@ -107,6 +117,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/line-log'
     | '/members'
+    | '/pending'
     | '/sensors'
     | '/settings'
     | '/signin'
@@ -117,6 +128,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/line-log'
     | '/members'
+    | '/pending'
     | '/sensors'
     | '/settings'
     | '/signin'
@@ -128,6 +140,7 @@ export interface RootRouteChildren {
   DashboardRoute: typeof DashboardRoute
   LineLogRoute: typeof LineLogRoute
   MembersRoute: typeof MembersRoute
+  PendingRoute: typeof PendingRoute
   SensorsRoute: typeof SensorsRoute
   SettingsRoute: typeof SettingsRoute
   SigninRoute: typeof SigninRoute
@@ -162,6 +175,13 @@ declare module '@tanstack/react-router' {
       path: '/members'
       fullPath: '/members'
       preLoaderRoute: typeof MembersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/pending': {
+      id: '/pending'
+      path: '/pending'
+      fullPath: '/pending'
+      preLoaderRoute: typeof PendingRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/sensors': {
@@ -200,6 +220,7 @@ const rootRouteChildren: RootRouteChildren = {
   DashboardRoute: DashboardRoute,
   LineLogRoute: LineLogRoute,
   MembersRoute: MembersRoute,
+  PendingRoute: PendingRoute,
   SensorsRoute: SensorsRoute,
   SettingsRoute: SettingsRoute,
   SigninRoute: SigninRoute,

@@ -1,27 +1,12 @@
-export type UserRole = "admin" | "member" | "viewer";
+import type { User } from "@/lib/auth";
 
-const configuredRole = import.meta.env.VITE_MOCK_ROLE;
-
-// TODO: Replace mockRole with the authenticated user's role from the backend.
-// For local testing, run with VITE_MOCK_ROLE=admin, member, or viewer.
-export const mockRole: UserRole =
-  configuredRole === "member" || configuredRole === "viewer" || configuredRole === "admin"
-    ? configuredRole
-    : "admin";
-
-export const permissions = {
-  canManageSensors: mockRole === "admin",
-  canViewMembers: mockRole === "admin" || mockRole === "member",
-  canInviteUsers: mockRole === "admin" || mockRole === "member",
-  canRemoveMembers: mockRole === "admin",
-  canViewLineLog: mockRole === "admin",
-  canAccessSettings: true,
-} as const;
-
-export type ProtectedPath = "/dashboard" | "/sensors" | "/members" | "/line-log" | "/settings";
-export function canAccessRoute(path: ProtectedPath): boolean {
-  if (path === "/sensors") return permissions.canManageSensors;
-  if (path === "/members") return permissions.canViewMembers;
-  if (path === "/line-log") return permissions.canViewLineLog;
-  return true;
+// Mirrors the backend: admins manage sensors and people; everyone approved can
+// see the dashboard and the LINE log. The backend enforces this either way.
+export function permissionsFor(user: User | null) {
+  const admin = user?.role === "admin" && user.status === "active";
+  return {
+    canManageSensors: admin,
+    canManageMembers: admin,
+    canSendLineTest: admin,
+  };
 }

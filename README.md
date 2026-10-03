@@ -60,6 +60,18 @@ docker compose up -d --build
 
 อัปเดตหลัง push โค้ดใหม่: `git pull && docker compose up -d --build`
 
+### บัญชีผู้ใช้
+
+- ใครก็สมัครได้ แต่บัญชีใหม่จะ "รออนุมัติ" จนกว่า admin จะกด Approve ในหน้า Members
+- `admin`: จัดการ sensor และสมาชิก / `member`: ดู dashboard และ LINE log
+- สร้าง admin คนแรก (หรือเลื่อนบัญชีที่มีอยู่เป็น admin):
+
+```bash
+docker exec -it se-iot-backend python create_admin.py
+```
+
+- Session อยู่ได้ 8 ชั่วโมง หรือ 30 วันถ้าติ๊ก "Remember me" (`SESSION_HOURS`, `REMEMBER_DAYS`)
+
 ## ส่งข้อมูลจาก sensor
 
 Publish ไปที่ topic `Test sensor/<device_id>` เป็น JSON:
@@ -93,7 +105,9 @@ mosquitto_pub -h tempse.local -u <user> -P <pass> \
 
 | Endpoint | ใช้ทำอะไร |
 |---|---|
-| `GET /api/health` | สถานะระบบ, MQTT, พื้นที่ดิสก์ |
+| `POST /api/auth/signup`, `/login`, `/logout`, `GET /api/auth/me` | สมัคร / เข้าสู่ระบบ / ออก / ผู้ใช้ปัจจุบัน |
+| `GET / PUT / DELETE /api/users` | (admin) อนุมัติและจัดการสมาชิก |
+| `GET /api/health` | สถานะระบบ, MQTT, พื้นที่ดิสก์ (ไม่ต้อง login) |
 | `GET /api/devices` | sensor ทั้งหมดพร้อมค่าล่าสุด |
 | `PUT / DELETE /api/devices/{id}` | แก้ไข / ลบการตั้งค่า sensor |
 | `GET /api/sensors?from=&to=&limit=` | ข้อมูลย้อนหลัง (สูงสุด 5000 ค่า) |

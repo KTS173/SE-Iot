@@ -2,8 +2,9 @@
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Body
+from fastapi import APIRouter, Body, Depends
 
+import auth
 import config
 from db import get_db, row_to_reading
 from routers import error_response
@@ -12,7 +13,7 @@ from sensor_config import read_config_payload, row_to_config
 router = APIRouter()
 
 
-@router.get("/api/devices")
+@router.get("/api/devices", dependencies=[Depends(auth.approved_user)])
 def devices():
     """
     Every known sensor: those that have reported, those registered but silent,
@@ -60,7 +61,7 @@ def devices():
     return {"data": payload, "offline_after_seconds": config.device_offline_seconds}
 
 
-@router.put("/api/devices/{device_id}")
+@router.put("/api/devices/{device_id}", dependencies=[Depends(auth.admin_user)])
 def upsert_device(device_id: str, payload: dict[str, Any] | None = Body(None)):
     """Create or update a sensor's display settings and alert thresholds."""
     values, error = read_config_payload(payload or {})
@@ -90,7 +91,7 @@ def upsert_device(device_id: str, payload: dict[str, Any] | None = Body(None)):
     return {"data": {"device_id": device_id, **values, "configured": True}}
 
 
-@router.delete("/api/devices/{device_id}")
+@router.delete("/api/devices/{device_id}", dependencies=[Depends(auth.admin_user)])
 def delete_device(device_id: str, purge: bool = False):
     """
     Remove a sensor's settings. Readings are kept unless ?purge=true, so

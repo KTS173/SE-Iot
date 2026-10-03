@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 import {
@@ -16,12 +16,12 @@ import type { DateRange } from "react-day-picker";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine,
 } from "recharts";
-import { clearUser, getUser, type User } from "@/lib/auth";
+import { requireApproved, useCurrentUser } from "@/lib/auth";
 import { useLiveSensors, useRangeComparison, type Sensor,} from "@/lib/sensors";
 import { BrandMark, APP_NAME } from "@/components/brand";
-import { MobileNavigation } from "@/components/app-shell";
+import { MobileNavigation, useLogout } from "@/components/app-shell";
 import { toast } from "sonner";
-import { mockRole, permissions } from "@/lib/roles";
+import { permissionsFor } from "@/lib/roles";
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({
@@ -34,6 +34,7 @@ export const Route = createFileRoute("/dashboard")({
       { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
+  beforeLoad: requireApproved,
   component: Dashboard,
 });
 
@@ -118,9 +119,10 @@ function ChartYAxisTick({
 }
 
 function Dashboard() {
-  const navigate = useNavigate();
   const sensors = useLiveSensors();
-  const [user, setUserState] = useState<User | null>(null);
+  const user = useCurrentUser();
+  const permissions = permissionsFor(user);
+  const logout = useLogout();
   const [activeId, setActiveId] = useState(1);
   const [temperatureScale, setTemperatureScale] = useState<ChartScale | null>(null);
   const [humidityScale, setHumidityScale] = useState<ChartScale | null>(null);
@@ -130,15 +132,6 @@ function Dashboard() {
   const [preset, setPreset] = useState<Preset>("7d");
   const [customRange, setCustomRange] = useState<DateRange | undefined>();
   const [now, setNow] = useState<Date | null>(null);
-
-  useEffect(() => {
-    const u = getUser();
-    if (!u) {
-      navigate({ to: "/signin" });
-      return;
-    }
-    setUserState(u);
-  }, [navigate]);
 
   useEffect(() => {
     for (const metric of ["temperature", "humidity"] as const) {
@@ -205,18 +198,17 @@ function Dashboard() {
   const withHum = online.filter((sensor) => sensor.humidity != null);
   const avgTemp = withTemp.reduce((sum, sensor) => sum + sensor.temperature!, 0) / Math.max(1, withTemp.length);
   const avgHum = withHum.reduce((sum, sensor) => sum + sensor.humidity!, 0) / Math.max(1, withHum.length);
-  const logout = () => { clearUser(); toast.success("Signed out"); navigate({ to: "/signin" }); };
 
   if (!user) return null;
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900 xl:h-screen xl:overflow-hidden">
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col bg-[#0b1739] text-white xl:flex">
         <div className="flex h-20 items-center gap-3 border-b border-white/10 px-5"><BrandMark className="h-10 w-10 rounded-lg shadow-none" iconClassName="h-5 w-5" /><div><p className="text-sm font-bold">Lab Environment</p><p className="text-xs text-blue-200/70">Monitor</p></div></div>
-        <nav className="flex-1 space-y-1.5 px-3 py-6" aria-label="Main navigation"><Link to="/dashboard" className="flex items-center gap-3 rounded-lg bg-blue-600 px-3 py-2.5 text-sm font-medium text-white"><LayoutDashboard className="h-[18px] w-[18px]"/>Dashboard</Link>{permissions.canManageSensors && <Link to="/sensors" className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-300 hover:bg-white/10 hover:text-white"><Radio className="h-[18px] w-[18px]"/>Sensors</Link>}{permissions.canViewMembers && <Link to="/members" className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-300 hover:bg-white/10 hover:text-white"><Users className="h-[18px] w-[18px]"/>Members</Link>}{permissions.canViewLineLog && <Link to="/line-log" className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-300 hover:bg-white/10 hover:text-white"><MessageSquareText className="h-[18px] w-[18px]"/>LINE Log</Link>}</nav>
+        <nav className="flex-1 space-y-1.5 px-3 py-6" aria-label="Main navigation"><Link to="/dashboard" className="flex items-center gap-3 rounded-lg bg-blue-600 px-3 py-2.5 text-sm font-medium text-white"><LayoutDashboard className="h-[18px] w-[18px]"/>Dashboard</Link>{permissions.canManageSensors && <Link to="/sensors" className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-300 hover:bg-white/10 hover:text-white"><Radio className="h-[18px] w-[18px]"/>Sensors</Link>}{permissions.canManageMembers && <Link to="/members" className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-300 hover:bg-white/10 hover:text-white"><Users className="h-[18px] w-[18px]"/>Members</Link>}<Link to="/line-log" className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-300 hover:bg-white/10 hover:text-white"><MessageSquareText className="h-[18px] w-[18px]"/>LINE Log</Link></nav>
         <div className="border-t border-white/10 px-3 py-4"><Link to="/settings" className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-300 transition-colors hover:bg-white/10 hover:text-white"><Settings className="h-[18px] w-[18px]"/>Settings</Link></div>
       </aside>
       <div className="flex min-h-screen min-w-0 flex-col xl:ml-60 xl:h-screen">
-        <header className="flex h-16 shrink-0 items-center justify-between border-b bg-white px-4 sm:px-6"><div><h1 className="text-xl font-bold">Dashboard</h1><p className="hidden text-xs text-slate-500 sm:block">Real-time laboratory environment overview</p></div><div className="flex items-center gap-3"><div className="hidden text-right sm:block"><p className="text-sm font-semibold">{user.name}</p><p className="text-[11px] capitalize text-slate-500">{mockRole}</p></div><div className="grid h-9 w-9 place-items-center rounded-full bg-blue-100 text-sm font-bold text-blue-700">{user.name.charAt(0).toUpperCase()}</div><Button variant="ghost" size="sm" onClick={logout}><LogOut className="h-4 w-4" /></Button></div></header>
+        <header className="flex h-16 shrink-0 items-center justify-between border-b bg-white px-4 sm:px-6"><div><h1 className="text-xl font-bold">Dashboard</h1><p className="hidden text-xs text-slate-500 sm:block">Real-time laboratory environment overview</p></div><div className="flex items-center gap-3"><div className="hidden text-right sm:block"><p className="text-sm font-semibold">{user.name}</p><p className="text-[11px] capitalize text-slate-500">{user.role}</p></div><div className="grid h-9 w-9 place-items-center rounded-full bg-blue-100 text-sm font-bold text-blue-700">{user.name.charAt(0).toUpperCase()}</div><Button variant="ghost" size="sm" onClick={logout}><LogOut className="h-4 w-4" /></Button></div></header>
         <main className="min-h-0 flex-1 overflow-y-auto p-3 pb-20 sm:p-4 sm:pb-20 xl:p-5 xl:pb-5"><div className="mx-auto grid max-w-[1600px] gap-4 xl:h-full xl:grid-cols-[280px_minmax(0,1fr)] xl:grid-rows-[minmax(340px,1.35fr)_minmax(240px,1fr)]">
           <Card className="flex min-h-[430px] flex-col overflow-hidden xl:row-span-2 xl:min-h-0"><div className="flex items-center justify-between border-b px-4 py-4"><div><h2 className="font-semibold">Sensors</h2><p className="text-xs text-slate-500">{sensors.length} devices connected</p></div></div><div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3 dashboard-scrollbar">{sensors.map((sensor,index)=>{const isOffline=sensor.status==="Offline";return <button key={sensor.id} onClick={()=>setActiveId(sensor.id)} className={cn("w-full rounded-xl border p-3 text-left",isOffline?"border-dashed border-slate-400 bg-slate-100 text-slate-700 hover:bg-slate-200":sensor.id===activeId?"border-blue-200 bg-blue-50":"hover:bg-slate-50")}><div className="mb-3 flex items-center justify-between"><div className="flex items-center gap-2"><span className={cn("h-2.5 w-2.5 rounded-full",isOffline&&"bg-slate-500")} style={isOffline?undefined:{backgroundColor:SENSOR_COLORS[index%6]}}/><span className={cn("text-sm font-semibold",isOffline&&"text-slate-800")}>{sensor.name}</span></div><span className={cn("text-[10px] font-semibold",sensor.status==="Online"?"text-emerald-600":"text-slate-500")}>{sensor.status}</span></div><div className={cn("grid grid-cols-2 gap-2 text-slate-600",isOffline&&"text-slate-600")}><span className="flex items-center gap-1 text-sm font-semibold"><Thermometer className={cn("h-4 w-4",isOffline?"text-slate-500":"text-orange-500")}/>{sensor.temperature?.toFixed(1) ?? "--"}°C</span><span className="flex items-center gap-1 text-sm font-semibold"><Droplets className={cn("h-4 w-4",isOffline?"text-slate-500":"text-sky-500")}/>{sensor.humidity?.toFixed(0) ?? "--"} %RH</span></div></button>})}</div></Card>
           <Card className="flex min-h-[400px] min-w-0 flex-col p-4 xl:min-h-0">

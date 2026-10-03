@@ -1,11 +1,12 @@
 """LINE webhook, setup status, and test push."""
 import json
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 import alerts
+import auth
 import line_client
 from routers import error_response
 
@@ -34,7 +35,7 @@ async def line_webhook(request: Request):
     return {"status": "ok"}
 
 
-@router.get("/api/line/status")
+@router.get("/api/line/status", dependencies=[Depends(auth.approved_user)])
 def line_status():
     return {
         "data": {
@@ -46,7 +47,7 @@ def line_status():
     }
 
 
-@router.post("/api/line/test")
+@router.post("/api/line/test", dependencies=[Depends(auth.admin_user)])
 def line_test():
     """Send a test push so setup can be verified without waiting for a breach."""
     sent, error = line_client.send_text(

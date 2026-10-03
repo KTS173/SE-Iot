@@ -24,6 +24,7 @@ os.environ.update(
 )
 
 import alerts  # noqa: E402
+import auth  # noqa: E402
 import config  # noqa: E402
 import db as db_module  # noqa: E402
 import line_client  # noqa: E402
@@ -59,6 +60,7 @@ def get_db(tmp_path, monkeypatch, disk):
     monkeypatch.setattr(config, "database_path", str(tmp_path / "test.db"))
     monkeypatch.setattr(storage, "last_retention_cleanup", 0.0)
     monkeypatch.setattr(storage, "storage_warning_logged", False)
+    monkeypatch.setattr(auth, "_failed_logins", {})
     db_module.init_db()
     line_client.configure(db_module.get_db, on_delivered=alerts.mark_notified)
     alerts.configure(db_module.get_db, notifier=line_client.notify)
@@ -67,14 +69,47 @@ def get_db(tmp_path, monkeypatch, disk):
     line_client.configure(None)
 
 
+PASSWORD = "password123"
+
+
 @pytest.fixture
-def client(get_db):
+def make_user(get_db):
+    def make(username, role="member", status="active"):
+        user, error = auth.create_user(
+            name=username.title(), username=username, email=f"{username}@lab.test",
+            password=PASSWORD, role=role, status=status,
+        )
+        assert error is None
+        return user
+
+    return make
+
+
+@pytest.fixture
+def new_client(get_db):
+    """A fresh browser: no cookies. Pass a username to sign in as that user."""
     from fastapi.testclient import TestClient
 
     import app
 
-    # No `with`: skips lifespan, so no MQTT connection or background threads.
-    return TestClient(app.app)
+    def make(username=None):
+        # No `with`: skips lifespan, so no MQTT connection or background threads.
+        browser = TestClient(app.app)
+        if username:
+            response = browser.post(
+                "/api/auth/login", json={"identifier": username, "password": PASSWORD}
+            )
+            assert response.status_code == 200, response.text
+        return browser
+
+    return make
+
+
+@pytest.fixture
+def client(make_user, new_client):
+    """Signed in as an approved admin, so every endpoint is reachable."""
+    make_user("admin", role="admin")
+    return new_client("admin")
 
 
 def iso(minutes_ago=0):

@@ -1,10 +1,11 @@
 """Alert incidents and LINE delivery log."""
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 import alerts
+import auth
 import line_client
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(auth.approved_user)])
 
 
 @router.get("/api/alerts")

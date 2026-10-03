@@ -1,7 +1,8 @@
 """Health check and sensor reading history."""
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 
+import auth
 import config
 from db import get_db, row_to_reading
 from ingest import mqtt_client
@@ -30,7 +31,7 @@ def health():
     }
 
 
-@router.get("/api/sensors/latest")
+@router.get("/api/sensors/latest", dependencies=[Depends(auth.approved_user)])
 def latest_sensor():
     with get_db() as connection:
         row = connection.execute(
@@ -39,7 +40,7 @@ def latest_sensor():
     return {"data": row_to_reading(row)}
 
 
-@router.get("/api/sensors")
+@router.get("/api/sensors", dependencies=[Depends(auth.approved_user)])
 def sensor_history(
     limit: int = 20,
     from_: str | None = Query(None, alias="from"),

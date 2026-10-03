@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "../components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card } from "@/components/ui/card";
-import { setUser } from "@/lib/auth";
+import { homeFor, redirectIfSignedIn, signIn } from "@/lib/auth";
 import { toast } from "sonner";
 import { BrandLockup, GoogleIcon } from "@/components/brand";
 // Swap this import to replace the left panel background image.
@@ -23,6 +23,7 @@ export const Route = createFileRoute("/signin")({
       { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
+  beforeLoad: redirectIfSignedIn,
   component: SignInPage,
 });
 
@@ -31,20 +32,23 @@ function SignInPage() {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!identifier || !password) {
+    if (!identifier.trim() || !password) {
       toast.error("Please fill in all fields");
       return;
     }
-    setUser({
-      name: identifier.includes("@") ? identifier.split("@")[0] : identifier,
-      email: identifier.includes("@") ? identifier : `${identifier}@lab.local`,
-      username: identifier,
-    });
-    toast.success("Welcome back");
-    navigate({ to: "/dashboard" });
+    setSubmitting(true);
+    try {
+      const user = await signIn(identifier.trim(), password, remember);
+      toast.success(`Welcome back, ${user.name}`);
+      navigate({ to: homeFor(user) });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not sign in");
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -99,13 +103,14 @@ function SignInPage() {
                 <Checkbox checked={remember} onCheckedChange={(v) => setRemember(!!v)} />
                 Remember me
               </label>
-              <a href="#" className="text-sm text-indigo-600 hover:underline">Forgot password?</a>
+              <button type="button" onClick={() => toast.info("Ask a lab admin to help you reset your password")} className="text-sm text-indigo-600 hover:underline">Forgot password?</button>
             </div>
             <Button
               type="submit"
+              disabled={submitting}
               className="w-full rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white shadow-lg shadow-indigo-600/25"
             >
-              Sign In
+              {submitting ? "Signing in..." : "Sign In"}
             </Button>
           </form>
 

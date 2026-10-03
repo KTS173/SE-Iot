@@ -5,6 +5,7 @@ Layout:
   config.py         environment settings (loads .env)
   db.py             SQLite connection and schema
   sensor_config.py  per-device settings and validation
+  auth.py           accounts, passwords, sessions, permission checks
   storage.py        disk guard and retention cleanup
   ingest.py         MQTT reading -> database -> alerts
   alerts.py         threshold rules and offline watcher
@@ -18,6 +19,7 @@ from contextlib import asynccontextmanager
 import uvicorn
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 import alerts
@@ -25,7 +27,8 @@ import line_client
 import storage
 from db import get_db, init_db
 from ingest import mqtt_client
-from routers import devices, error_response, line, notifications, sensors
+from routers import auth as auth_routes
+from routers import devices, error_response, line, notifications, sensors, users
 
 
 @asynccontextmanager
@@ -44,11 +47,18 @@ app = FastAPI(title="SE-IoT API", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[config.cors_origin],
+    allow_credentials=True,  # the session cookie in dev, where ports differ
     allow_methods=["*"],
     allow_headers=["*"],
 )
-for module in (sensors, devices, notifications, line):
+for module in (auth_routes, users, sensors, devices, notifications, line):
     app.include_router(module.router)
+
+
+@app.exception_handler(HTTPException)
+async def http_error(_request, exc):
+    """401/403/404 use the same {"error": "..."} shape as every other error."""
+    return error_response(exc.detail, exc.status_code)
 
 
 @app.exception_handler(RequestValidationError)

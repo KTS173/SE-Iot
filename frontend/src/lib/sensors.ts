@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { apiFetch } from "@/lib/api";
 
-// Production uses nginx's same-origin /api proxy, so the Pi's IP/hostname does
-// not need to be baked into the frontend image.
-const API_URL = import.meta.env.VITE_API_URL || "";
 
 export type SensorStatus = "Online" | "Offline";
 
@@ -57,7 +55,7 @@ export function useSystemHealth(): SystemHealth | null {
     let active = true;
     const load = async () => {
       try {
-        const response = await fetch(`${API_URL}/api/health`);
+        const response = await apiFetch(`/api/health`);
         if (response.ok && active) setHealth((await response.json()) as SystemHealth);
       } catch {
         // Keep the last known health status during a temporary network failure.
@@ -131,7 +129,7 @@ export async function saveSensorConfig(
   deviceId: string,
   config: SensorConfigInput,
 ): Promise<void> {
-  const response = await fetch(`${API_URL}/api/devices/${encodeURIComponent(deviceId)}`, {
+  const response = await apiFetch(`/api/devices/${encodeURIComponent(deviceId)}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(config),
@@ -145,8 +143,8 @@ export async function saveSensorConfig(
 
 export async function deleteSensorConfig(deviceId: string, purge = false): Promise<void> {
   const query = purge ? "?purge=true" : "";
-  const response = await fetch(
-    `${API_URL}/api/devices/${encodeURIComponent(deviceId)}${query}`,
+  const response = await apiFetch(
+    `/api/devices/${encodeURIComponent(deviceId)}${query}`,
     { method: "DELETE" },
   );
   if (!response.ok) throw new Error(`Could not delete sensor (HTTP ${response.status})`);
@@ -165,7 +163,7 @@ export function useLiveSensors(): Sensor[] {
     let active = true;
     const load = async () => {
       try {
-        const response = await fetch(`${API_URL}/api/devices`);
+        const response = await apiFetch(`/api/devices`);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const { data } = (await response.json()) as { data: DeviceRow[] };
         if (active) setSensors(data.map(toSensor));
@@ -249,7 +247,7 @@ export function useRangeComparison(
     const load = async () => {
       try {
         const query = new URLSearchParams({ from: fromIso, to: toIso, limit: "5000" });
-        const response = await fetch(`${API_URL}/api/sensors?${query}`);
+        const response = await apiFetch(`/api/sensors?${query}`);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const { data } = (await response.json()) as { data: HistoryReading[] };
         if (active) setReadings(data);

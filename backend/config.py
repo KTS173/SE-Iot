@@ -18,3 +18,7 @@ storage_cleanup_batch_size = int(os.getenv("STORAGE_CLEANUP_BATCH_SIZE", "10000"
 storage_min_readings = int(os.getenv("STORAGE_MIN_READINGS", "100"))
 sensor_retention_days = int(os.getenv("SENSOR_RETENTION_DAYS", "31"))
 device_offline_seconds = int(os.getenv("DEVICE_OFFLINE_SECONDS", "120"))
+
+# Sign-in: a normal session lasts a working day, "Remember me" a month.
+session_hours = int(os.getenv("SESSION_HOURS", "8"))
+remember_days = int(os.getenv("REMEMBER_DAYS", "30"))

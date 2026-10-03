@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "../components/ui/label";
 import { Card } from "@/components/ui/card";
-import { setUser } from "@/lib/auth";
+import { redirectIfSignedIn, signUp } from "@/lib/auth";
 import { toast } from "sonner";
 import { APP_NAME, BrandLockup } from "@/components/brand";
 // Swap this import to replace the background image.
@@ -22,29 +22,42 @@ export const Route = createFileRoute("/signup")({
       { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
+  beforeLoad: redirectIfSignedIn,
   component: SignUpPage,
 });
 
 function SignUpPage() {
   const navigate = useNavigate();
   const [form, setForm] = useState({ name: "", email: "", username: "", password: "", confirm: "" });
+  const [submitting, setSubmitting] = useState(false);
 
   const update = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm({ ...form, [k]: e.target.value });
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.name || !form.email || !form.username || !form.password) {
       toast.error("Please fill in all fields");
+      return;
+    }
+    if (form.password.length < 8) {
+      toast.error("Password must be at least 8 characters");
       return;
     }
     if (form.password !== form.confirm) {
       toast.error("Passwords do not match");
       return;
     }
-    setUser({ name: form.name, email: form.email, username: form.username });
-    toast.success("Account created");
-    navigate({ to: "/dashboard" });
+    setSubmitting(true);
+    try {
+      const { name, username, email, password } = form;
+      await signUp({ name: name.trim(), username: username.trim(), email: email.trim(), password });
+      toast.success("Account created. An admin needs to approve it.");
+      navigate({ to: "/pending" });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not create account");
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -78,9 +91,10 @@ function SignUpPage() {
 
           <Button
             type="submit"
+            disabled={submitting}
             className="w-full rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white shadow-lg shadow-indigo-600/25"
           >
-            Sign Up
+            {submitting ? "Creating account..." : "Sign Up"}
           </Button>
         </form>
 
