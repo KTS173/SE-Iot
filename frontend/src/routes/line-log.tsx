@@ -5,7 +5,7 @@ import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, poll } from "@/lib/api";
 import { toast } from "sonner";
 import { requireApproved, useCurrentUser } from "@/lib/auth";
 import { permissionsFor } from "@/lib/roles";
@@ -78,11 +78,7 @@ function LineLogPage() {
     }
   }, []);
 
-  useEffect(() => {
-    load();
-    const timer = setInterval(load, 15_000);
-    return () => clearInterval(timer);
-  }, [load]);
+  useEffect(() => poll(load, 15_000), [load]);
 
   const sendTest = async () => {
     setTesting(true);

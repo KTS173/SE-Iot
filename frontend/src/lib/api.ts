@@ -33,3 +33,22 @@ export async function apiJson<T>(path: string, init: RequestInit & { json?: unkn
   if (!response.ok) throw new Error(body.error ?? `Request failed (HTTP ${response.status})`);
   return body as T;
 }
+
+/**
+ * Runs `load` now and every `ms` while the tab is visible. A hidden tab makes
+ * no requests; coming back refreshes at once instead of waiting a full period.
+ */
+export function poll(load: () => void, ms: number): () => void {
+  load();
+  const timer = setInterval(() => {
+    if (!document.hidden) load();
+  }, ms);
+  const onVisible = () => {
+    if (!document.hidden) load();
+  };
+  document.addEventListener("visibilitychange", onVisible);
+  return () => {
+    clearInterval(timer);
+    document.removeEventListener("visibilitychange", onVisible);
+  };
+}

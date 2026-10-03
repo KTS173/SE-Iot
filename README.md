@@ -127,5 +127,6 @@ mosquitto_pub -h tempse.local -u <user> -P <pass> \
 | `GET /api/devices` | sensor ทั้งหมดพร้อมค่าล่าสุด |
 | `PUT / DELETE /api/devices/{id}` | แก้ไข / ลบการตั้งค่า sensor |
 | `GET /api/sensors?from=&to=&limit=` | ข้อมูลย้อนหลัง (สูงสุด 5000 ค่า) |
+| `GET /api/sensors/chart?from=&to=&bucket=&offset=` | ค่าเฉลี่ยต่อเซนเซอร์ต่อช่วงเวลา (bucket วินาที) สำหรับกราฟ |
 | `GET /api/alerts`, `GET /api/notifications` | ประวัติแจ้งเตือน / การส่ง LINE |
 | `POST /api/line/webhook` | webhook ของ LINE |

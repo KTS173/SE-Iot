@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, poll } from "@/lib/api";
 
 
 export type SensorStatus = "Online" | "Offline";
@@ -61,11 +61,10 @@ export function useSystemHealth(): SystemHealth | null {
         // Keep the last known health status during a temporary network failure.
       }
     };
-    load();
-    const timer = setInterval(load, 30_000);
+    const stop = poll(load, 30_000);
     return () => {
       active = false;
-      clearInterval(timer);
+      stop();
     };
   }, []);
 
@@ -182,12 +181,11 @@ export function useLiveSensors(): Sensor[] {
         }
       }
     };
-    load();
-    const timer = setInterval(load, 5000);
+    const stop = poll(load, 5000);
     changeListeners.add(load);
     return () => {
       active = false;
-      clearInterval(timer);
+      stop();
       changeListeners.delete(load);
     };
   }, []);
@@ -200,11 +198,17 @@ interface ChartPoint {
   [key: `s${number}`]: number;
 }
 
-interface HistoryReading {
+interface ChartRow {
   device_id: string;
+  /** bucket start, epoch ms */
+  start: number;
   temperature: number | null;
   humidity: number | null;
-  received_at: string;
+}
+
+export interface RangeHistory {
+  temperature: ChartPoint[];
+  humidity: ChartPoint[];
 }
 
 const MINUTE_MS = 60_000;
@@ -228,73 +232,59 @@ function bucketFor(spanMs: number): { ms: number; label: (date: Date) => string 
 }
 
 /**
- * Real history from the backend, averaged into buckets sized to the requested
- * span (minutes for hours, hours for days, days for months). Returns only
- * buckets that have data.
+ * History for both charts from one request. The backend averages readings into
+ * buckets sized to the span (minutes for hours, hours for days, days for
+ * months), so even 30 days is a few hundred rows. Returns only buckets that
+ * have data.
  */
-export function useRangeComparison(
-  sensors: Sensor[],
-  from: Date,
-  to: Date,
-  metric: "temperature" | "humidity",
-): ChartPoint[] {
-  const [readings, setReadings] = useState<HistoryReading[]>([]);
+export function useRangeHistory(sensors: Sensor[], from: Date, to: Date): RangeHistory {
+  const [rows, setRows] = useState<ChartRow[]>([]);
   const fromIso = from.toISOString();
   const toIso = to.toISOString();
+  const bucket = bucketFor(to.getTime() - from.getTime());
 
   useEffect(() => {
     let active = true;
     const load = async () => {
       try {
-        const query = new URLSearchParams({ from: fromIso, to: toIso, limit: "5000" });
-        const response = await apiFetch(`/api/sensors?${query}`);
+        const query = new URLSearchParams({
+          from: fromIso,
+          to: toIso,
+          bucket: String(bucket.ms / 1000),
+          // Day buckets start at local midnight.
+          offset: String(-new Date().getTimezoneOffset() * 60),
+        });
+        const response = await apiFetch(`/api/sensors/chart?${query}`);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const { data } = (await response.json()) as { data: HistoryReading[] };
-        if (active) setReadings(data);
+        const { data } = (await response.json()) as { data: ChartRow[] };
+        if (active) setRows(data);
       } catch {
-        if (active) setReadings([]);
+        if (active) setRows([]);
       }
     };
-    load();
-    const timer = setInterval(load, 30_000);
+    const stop = poll(load, 30_000);
     return () => {
       active = false;
-      clearInterval(timer);
+      stop();
     };
-  }, [fromIso, toIso]);
+  }, [fromIso, toIso, bucket.ms]);
 
   return useMemo(() => {
-    const { ms: bucketMs, label } = bucketFor(to.getTime() - from.getTime());
     const idOf = new Map(sensors.map((sensor) => [sensor.deviceId, sensor.id]));
-
-    // bucket start -> chart id -> running average
-    const buckets = new Map<number, Map<number, { sum: number; count: number }>>();
-
-    for (const reading of readings) {
-      const id = idOf.get(reading.device_id);
-      const value = metric === "temperature" ? reading.temperature : reading.humidity;
-      if (id === undefined || value == null) continue;
-
-      const time = new Date(reading.received_at).getTime();
-      if (Number.isNaN(time)) continue;
-
-      const start = Math.floor(time / bucketMs) * bucketMs;
-      const bucket = buckets.get(start) ?? new Map();
-      const entry = bucket.get(id) ?? { sum: 0, count: 0 };
-      entry.sum += value;
-      entry.count += 1;
-      bucket.set(id, entry);
-      buckets.set(start, bucket);
-    }
-
-    return [...buckets.entries()]
-      .sort(([a], [b]) => a - b)
-      .map(([start, bucket]) => {
-        const point = { time: label(new Date(start)) } as ChartPoint;
-        for (const [id, { sum, count }] of bucket) {
-          point[`s${id}`] = Number((sum / count).toFixed(1));
-        }
-        return point;
-      });
-  }, [readings, sensors, metric, from, to]);
+    const series = (metric: "temperature" | "humidity"): ChartPoint[] => {
+      const points = new Map<number, ChartPoint>();
+      for (const row of rows) {
+        const id = idOf.get(row.device_id);
+        const value = row[metric];
+        if (id === undefined || value == null) continue;
+        const point = points.get(row.start) ?? ({ time: bucket.label(new Date(row.start)) } as ChartPoint);
+        point[`s${id}`] = value;
+        points.set(row.start, point);
+      }
+      // Rows arrive ordered by bucket start.
+      return [...points.values()];
+    };
+    return { temperature: series("temperature"), humidity: series("humidity") };
+    // bucket.label only changes together with bucket.ms.
+  }, [rows, sensors, bucket.ms]);
 }

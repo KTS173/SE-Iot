@@ -11,7 +11,7 @@ import { homeFor, redirectIfSignedIn, signIn } from "@/lib/auth";
 import { toast } from "sonner";
 import { BrandLockup, GoogleIcon } from "@/components/brand";
 // Swap this import to replace the left panel background image.
-import panelImage from "@/assets/quantum-panel.jpg";
+import panelImage from "@/assets/quantum-panel.webp";
 
 export const Route = createFileRoute("/signin")({
   head: () => ({

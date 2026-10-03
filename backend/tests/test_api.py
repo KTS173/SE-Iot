@@ -56,6 +56,47 @@ class TestHistory:
         assert response.json() == {"error": "limit must be a number"}
 
 
+class TestChart:
+    START = "2026-10-01T00:00:00+00:00"
+    END = "2026-10-03T00:00:00+00:00"
+
+    def get(self, client, **params):
+        response = client.get("/api/sensors/chart", params={"from": self.START, "to": self.END, **params})
+        assert response.status_code == 200
+        return response.json()["data"]
+
+    def test_averages_each_device_per_bucket(self, client, add_reading):
+        add_reading("001", temperature=20, humidity=40, received_at="2026-10-01T10:00:10.123456+00:00")
+        add_reading("001", temperature=22, humidity=42, received_at="2026-10-01T10:00:50+00:00")
+        add_reading("002", temperature=30, humidity=60, received_at="2026-10-01T10:00:30+00:00")
+        add_reading("001", temperature=24, humidity=44, received_at="2026-10-01T10:01:05+00:00")
+        add_reading("001", temperature=99, received_at="2026-10-04T00:00:00+00:00")  # outside range
+
+        data = self.get(client, bucket=60)
+        minute = 1_790_848_800_000  # 2026-10-01T10:00:00Z in ms
+        assert data == [
+            {"device_id": "001", "start": minute, "temperature": 21.0, "humidity": 41.0},
+            {"device_id": "002", "start": minute, "temperature": 30.0, "humidity": 60.0},
+            {"device_id": "001", "start": minute + 60_000, "temperature": 24.0, "humidity": 44.0},
+        ]
+
+    def test_day_buckets_start_at_local_midnight(self, client, add_reading):
+        # 23:30 UTC on the 1st is 06:30 on the 2nd in Bangkok (UTC+7).
+        add_reading("001", received_at="2026-10-01T23:30:00+00:00")
+        utc = self.get(client, bucket=86_400)
+        bangkok = self.get(client, bucket=86_400, offset=7 * 3600)
+        assert utc[0]["start"] == 1_790_812_800_000  # 2026-10-01T00:00Z
+        assert bangkok[0]["start"] == 1_790_874_000_000  # 2026-10-02T00:00+07:00
+
+    def test_bucket_is_clamped(self, client, add_reading):
+        add_reading("001", received_at="2026-10-01T10:00:10+00:00")
+        add_reading("001", received_at="2026-10-01T10:00:50+00:00")
+        assert len(self.get(client, bucket=1)) == 1
+
+    def test_range_is_required(self, client):
+        assert client.get("/api/sensors/chart").status_code == 400
+
+
 def test_devices_lists_online_offline_and_configured_only(client, add_reading, add_config):
     add_reading("001")
     add_reading("002", received_at=iso(minutes_ago=10))

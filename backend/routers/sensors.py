@@ -73,3 +73,44 @@ def sensor_history(
     readings = [row_to_reading(row) for row in rows]
     # Up to 5000 plain dicts: JSONResponse skips FastAPI's per-field encoder.
     return JSONResponse({"data": readings})
+
+
+@router.get("/api/sensors/chart", dependencies=[Depends(auth.approved_user)])
+def sensor_chart(
+    from_: str = Query(alias="from"),
+    to: str = Query(),
+    bucket: int = 60,
+    offset: int = 0,
+):
+    """
+    Per-device averages over `bucket`-second windows, for the dashboard charts.
+    `offset` is the viewer's UTC offset in seconds, so day buckets start at
+    local midnight. Averaging here keeps a 30-day range to a few hundred rows
+    instead of every reading.
+    """
+    bucket = max(60, min(bucket, 86_400))
+    offset = max(-14 * 3600, min(offset, 14 * 3600))
+    with get_db() as connection:
+        rows = connection.execute(
+            """
+            SELECT device_id,
+                   (CAST(strftime('%s', received_at) AS INTEGER) + :offset)
+                       / :bucket * :bucket - :offset AS start,
+                   ROUND(AVG(temperature), 1) AS temperature,
+                   ROUND(AVG(humidity), 1) AS humidity
+            FROM sensor_readings
+            WHERE received_at >= :from AND received_at <= :to
+            GROUP BY device_id, start
+            ORDER BY start, device_id
+            """,
+            {"from": from_, "to": to, "bucket": bucket, "offset": offset},
+        ).fetchall()
+    return JSONResponse({"data": [
+        {
+            "device_id": row["device_id"],
+            "start": row["start"] * 1000,
+            "temperature": row["temperature"],
+            "humidity": row["humidity"],
+        }
+        for row in rows
+    ]})

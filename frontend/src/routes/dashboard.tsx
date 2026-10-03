@@ -19,7 +19,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine,
 } from "recharts";
 import { requireApproved, useCurrentUser } from "@/lib/auth";
-import { useLiveSensors, useRangeComparison, type Sensor } from "@/lib/sensors";
+import { useLiveSensors, useRangeHistory, type Sensor } from "@/lib/sensors";
 import { BrandMark, APP_NAME } from "@/components/brand";
 import { MobileNavigation, useLogout } from "@/components/app-shell";
 import { toast } from "sonner";
@@ -221,8 +221,7 @@ function Dashboard() {
   const rangeLabel = sameDay
     ? `${format(from, "d MMM")} · ${format(from, "HH:mm")} – ${format(to, "HH:mm")}`
     : `${format(from, "d MMM")} – ${format(to, "d MMM yyyy")}`;
-  const temperatureHistory = useRangeComparison(sensors, from, to, "temperature");
-  const humidityHistory = useRangeComparison(sensors, from, to, "humidity");
+  const { temperature: temperatureHistory, humidity: humidityHistory } = useRangeHistory(sensors, from, to);
   const selected = sensors.find((sensor) => sensor.id === selectedId) ?? null;
   const shownSensors = selected ? [selected] : sensors;
   const temperatureAlert = showAlertLines ? alertRangeOf(shownSensors, "temperature") : null;

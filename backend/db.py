@@ -35,6 +35,11 @@ def init_db():
             "CREATE INDEX IF NOT EXISTS idx_sensor_received_at "
             "ON sensor_readings(received_at DESC)"
         )
+        # Latest reading per device (/api/devices) and per-device history.
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sensor_device "
+            "ON sensor_readings(device_id, id)"
+        )
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS sensor_config (

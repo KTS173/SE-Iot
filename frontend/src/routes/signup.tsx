@@ -9,7 +9,7 @@ import { redirectIfSignedIn, signUp } from "@/lib/auth";
 import { toast } from "sonner";
 import { APP_NAME, BrandLockup } from "@/components/brand";
 // Swap this import to replace the background image.
-import bgImage from "@/assets/quantum-bg.jpg";
+import bgImage from "@/assets/quantum-bg.webp";
 
 export const Route = createFileRoute("/signup")({
   head: () => ({
