@@ -4,6 +4,7 @@ import { format } from "date-fns";
 import {
   LogOut, Thermometer, Droplets, Server, BatteryCharging, MessageSquareText,
   MapPin, Activity, Calendar as CalendarIcon, LayoutDashboard, Radio, Users, Settings, Wifi,
+  Eye, EyeOff, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -18,7 +19,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine,
 } from "recharts";
 import { requireApproved, useCurrentUser } from "@/lib/auth";
-import { saveAlertRange, useLiveSensors, useRangeComparison, type Sensor } from "@/lib/sensors";
+import { useLiveSensors, useRangeComparison, type Sensor } from "@/lib/sensors";
 import { BrandMark, APP_NAME } from "@/components/brand";
 import { MobileNavigation, useLogout } from "@/components/app-shell";
 import { toast } from "sonner";
@@ -45,12 +46,11 @@ type Health = "normal" | "warning" | "offline";
 /** Chart zoom: a per-browser view setting, not an alert threshold. */
 type ChartScale = { axisMin: string; axisMax: string };
 type Metric = "temperature" | "humidity";
-/** What the "Custom" editor holds: the zoom plus (admins) the alert range. */
-type ChartDraft = ChartScale & { alertMin: string; alertMax: string };
-/** The alert range shared by all sensors, or "mixed" when they differ. */
+/** The alert range to draw, or "mixed" when the shown sensors differ. */
 type AlertRange = { min: number; max: number } | "mixed" | null;
 
-const EMPTY_DRAFT: ChartDraft = { axisMin: "", axisMax: "", alertMin: "", alertMax: "" };
+const EMPTY_SCALE: ChartScale = { axisMin: "", axisMax: "" };
+const ALERT_LINES_KEY = "dashboard-show-alert-lines";
 
 function alertRangeOf(sensors: Sensor[], metric: Metric): AlertRange {
   if (sensors.length === 0) return null;
@@ -59,14 +59,7 @@ function alertRangeOf(sensors: Sensor[], metric: Metric): AlertRange {
   return ranges.every(([low, high]) => low === min && high === max) ? { min, max } : "mixed";
 }
 
-function draftFor(scale: ChartScale | null, range: AlertRange): ChartDraft {
-  return {
-    axisMin: scale?.axisMin ?? "",
-    axisMax: scale?.axisMax ?? "",
-    alertMin: range && range !== "mixed" ? String(range.min) : "",
-    alertMax: range && range !== "mixed" ? String(range.max) : "",
-  };
-}
+
 
 function health(s: Sensor): Health {
   if (s.status === "Offline") return "offline";
@@ -163,12 +156,13 @@ function Dashboard() {
   const user = useCurrentUser();
   const permissions = permissionsFor(user);
   const logout = useLogout();
-  const [activeId, setActiveId] = useState(1);
+  // null = all sensors; otherwise the charts and details focus on one sensor.
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [showAlertLines, setShowAlertLines] = useState(true);
   const [temperatureScale, setTemperatureScale] = useState<ChartScale | null>(null);
   const [humidityScale, setHumidityScale] = useState<ChartScale | null>(null);
-  const [temperatureDraft, setTemperatureDraft] = useState<ChartDraft>(EMPTY_DRAFT);
-  const [humidityDraft, setHumidityDraft] = useState<ChartDraft>(EMPTY_DRAFT);
-  const [savingScale, setSavingScale] = useState(false);
+  const [temperatureDraft, setTemperatureDraft] = useState<ChartScale>(EMPTY_SCALE);
+  const [humidityDraft, setHumidityDraft] = useState<ChartScale>(EMPTY_SCALE);
   const [editingScale, setEditingScale] = useState<Metric | null>(null);
   const [preset, setPreset] = useState<Preset>("7d");
   const [customRange, setCustomRange] = useState<DateRange | undefined>();
@@ -188,7 +182,23 @@ function Dashboard() {
         // Ignore invalid or unavailable local settings.
       }
     }
+    try {
+      setShowAlertLines(localStorage.getItem(ALERT_LINES_KEY) !== "off");
+    } catch {
+      // Default: shown.
+    }
   }, []);
+
+  const toggleAlertLines = () => {
+    const next = !showAlertLines;
+    setShowAlertLines(next);
+    try {
+      localStorage.setItem(ALERT_LINES_KEY, next ? "on" : "off");
+    } catch {
+      // Applies until reload.
+    }
+  };
+  const toggleSensor = (id: number) => setSelectedId((current) => (current === id ? null : id));
 
   useEffect(() => {
     setNow(new Date());
@@ -213,14 +223,13 @@ function Dashboard() {
     : `${format(from, "d MMM")} – ${format(to, "d MMM yyyy")}`;
   const temperatureHistory = useRangeComparison(sensors, from, to, "temperature");
   const humidityHistory = useRangeComparison(sensors, from, to, "humidity");
-  const temperatureAlert = alertRangeOf(sensors, "temperature");
-  const humidityAlert = alertRangeOf(sensors, "humidity");
-  const saveChartScale = async (metric: Metric) => {
+  const selected = sensors.find((sensor) => sensor.id === selectedId) ?? null;
+  const shownSensors = selected ? [selected] : sensors;
+  const temperatureAlert = showAlertLines ? alertRangeOf(shownSensors, "temperature") : null;
+  const humidityAlert = showAlertLines ? alertRangeOf(shownSensors, "humidity") : null;
+  const saveChartScale = (metric: Metric) => {
     const draft = metric === "temperature" ? temperatureDraft : humidityDraft;
-    const current = metric === "temperature" ? temperatureAlert : humidityAlert;
-    const label = metric === "temperature" ? "Temperature" : "Humidity";
-    if (pairError(draft.axisMin, draft.axisMax) || (permissions.canManageSensors && pairError(draft.alertMin, draft.alertMax))) return;
-
+    if (pairError(draft.axisMin, draft.axisMax)) return;
     // Chart zoom: this browser only. Both empty = automatic.
     const scale = draft.axisMin.trim() === "" ? null : { axisMin: draft.axisMin, axisMax: draft.axisMax };
     try {
@@ -231,26 +240,8 @@ function Dashboard() {
     }
     if (metric === "temperature") setTemperatureScale(scale);
     else setHumidityScale(scale);
-
-    // Alert range: server-side, every sensor, admins only.
-    const [alertMin, alertMax] = [Number(draft.alertMin), Number(draft.alertMax)];
-    const alertChanged = permissions.canManageSensors && draft.alertMin.trim() !== ""
-      && (current === null || current === "mixed" || current.min !== alertMin || current.max !== alertMax);
-    if (alertChanged) {
-      setSavingScale(true);
-      try {
-        await saveAlertRange(metric, alertMin, alertMax);
-        toast.success(`${label} alert range set to ${alertMin}–${alertMax} for all sensors`);
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Could not save alert range");
-        return;
-      } finally {
-        setSavingScale(false);
-      }
-    } else {
-      toast.success(`${label} chart view saved`);
-    }
     setEditingScale(null);
+    toast.success(`${metric === "temperature" ? "Temperature" : "Humidity"} chart scale saved`);
   };
   const online = sensors.filter((sensor) => sensor.status === "Online");
   const withTemp = online.filter((sensor) => sensor.temperature != null);
@@ -269,24 +260,26 @@ function Dashboard() {
       <div className="flex min-h-screen min-w-0 flex-col xl:ml-60 xl:h-screen">
         <header className="flex h-16 shrink-0 items-center justify-between border-b bg-white px-4 sm:px-6"><div><h1 className="text-xl font-bold">Dashboard</h1><p className="hidden text-xs text-slate-500 sm:block">Real-time laboratory environment overview</p></div><div className="flex items-center gap-3"><div className="hidden text-right sm:block"><p className="text-sm font-semibold">{user.name}</p><p className="text-[11px] capitalize text-slate-500">{user.role}</p></div><div className="grid h-9 w-9 place-items-center rounded-full bg-blue-100 text-sm font-bold text-blue-700">{user.name.charAt(0).toUpperCase()}</div><Button variant="ghost" size="sm" onClick={logout}><LogOut className="h-4 w-4" /></Button></div></header>
         <main className="min-h-0 flex-1 overflow-y-auto p-3 pb-20 sm:p-4 sm:pb-20 xl:p-5 xl:pb-5"><div className="mx-auto grid max-w-[1600px] gap-4 xl:h-full xl:grid-cols-[280px_minmax(0,1fr)] xl:grid-rows-[minmax(340px,1.35fr)_minmax(240px,1fr)]">
-          <Card className="flex min-h-[430px] flex-col overflow-hidden xl:row-span-2 xl:min-h-0"><div className="flex items-center justify-between border-b px-4 py-4"><div><h2 className="font-semibold">Sensors</h2><p className="text-xs text-slate-500">{sensors.length} devices connected</p></div></div><div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3 dashboard-scrollbar">{sensors.map((sensor,index)=>{const isOffline=sensor.status==="Offline";return <button key={sensor.id} onClick={()=>setActiveId(sensor.id)} className={cn("w-full rounded-xl border p-3 text-left",isOffline?"border-dashed border-slate-400 bg-slate-100 text-slate-700 hover:bg-slate-200":sensor.id===activeId?"border-blue-200 bg-blue-50":"hover:bg-slate-50")}><div className="mb-3 flex items-center justify-between"><div className="flex items-center gap-2"><span className={cn("h-2.5 w-2.5 rounded-full",isOffline&&"bg-slate-500")} style={isOffline?undefined:{backgroundColor:SENSOR_COLORS[index%6]}}/><span className={cn("text-sm font-semibold",isOffline&&"text-slate-800")}>{sensor.name}</span></div><span className={cn("text-[10px] font-semibold",sensor.status==="Online"?"text-emerald-600":"text-slate-500")}>{sensor.status}</span></div><div className={cn("grid grid-cols-2 gap-2 text-slate-600",isOffline&&"text-slate-600")}><span className="flex items-center gap-1 text-sm font-semibold"><Thermometer className={cn("h-4 w-4",isOffline?"text-slate-500":"text-orange-500")}/>{sensor.temperature?.toFixed(1) ?? "--"}°C</span><span className="flex items-center gap-1 text-sm font-semibold"><Droplets className={cn("h-4 w-4",isOffline?"text-slate-500":"text-sky-500")}/>{sensor.humidity?.toFixed(0) ?? "--"} %RH</span></div></button>})}</div></Card>
+          <Card className="flex min-h-[430px] flex-col overflow-hidden xl:row-span-2 xl:min-h-0"><div className="flex items-center justify-between border-b px-4 py-4"><div><h2 className="font-semibold">Sensors</h2><p className="text-xs text-slate-500">{sensors.length} devices connected</p></div></div><div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3 dashboard-scrollbar">{sensors.map((sensor,index)=>{const isOffline=sensor.status==="Offline";return <button key={sensor.id} onClick={()=>toggleSensor(sensor.id)} aria-pressed={sensor.id===selectedId} title={sensor.id===selectedId?"Show all sensors":"Show only this sensor"} className={cn("w-full rounded-xl border p-3 text-left",sensor.id===selectedId?"border-blue-400 bg-blue-50 ring-2 ring-blue-200":isOffline?"border-dashed border-slate-400 bg-slate-100 text-slate-700 hover:bg-slate-200":"hover:bg-slate-50")}><div className="mb-3 flex items-center justify-between"><div className="flex items-center gap-2"><span className={cn("h-2.5 w-2.5 rounded-full",isOffline&&"bg-slate-500")} style={isOffline?undefined:{backgroundColor:SENSOR_COLORS[index%6]}}/><span className={cn("text-sm font-semibold",isOffline&&"text-slate-800")}>{sensor.name}</span></div><span className={cn("text-[10px] font-semibold",sensor.status==="Online"?"text-emerald-600":"text-slate-500")}>{sensor.status}</span></div><div className={cn("grid grid-cols-2 gap-2 text-slate-600",isOffline&&"text-slate-600")}><span className="flex items-center gap-1 text-sm font-semibold"><Thermometer className={cn("h-4 w-4",isOffline?"text-slate-500":"text-orange-500")}/>{sensor.temperature?.toFixed(1) ?? "--"}°C</span><span className="flex items-center gap-1 text-sm font-semibold"><Droplets className={cn("h-4 w-4",isOffline?"text-slate-500":"text-sky-500")}/>{sensor.humidity?.toFixed(0) ?? "--"} %RH</span></div></button>})}</div></Card>
           <Card className="flex min-h-[400px] min-w-0 flex-col p-4 xl:min-h-0">
             <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h2 className="flex items-center gap-2 font-semibold"><Activity className="h-4 w-4 text-blue-600"/>Sensor Trends</h2>
-                <p className="text-xs text-slate-500">All sensors · {rangeLabel}</p>
+                <p className="text-xs text-slate-500">{selected ? selected.name : "All sensors"} · {rangeLabel}</p>
               </div>
               <div className="flex flex-wrap gap-2">
+                {selected && <button type="button" onClick={() => setSelectedId(null)} className="flex items-center gap-1 rounded-lg border px-2 py-1 text-[11px] hover:bg-slate-50"><X className="h-3 w-3"/>Show all</button>}
+                <button type="button" onClick={toggleAlertLines} aria-pressed={showAlertLines} className={cn("flex items-center gap-1 rounded-lg border px-2 py-1 text-[11px]", showAlertLines ? "border-red-200 text-red-600 hover:bg-red-50" : "text-slate-500 hover:bg-slate-50")}>{showAlertLines ? <Eye className="h-3 w-3"/> : <EyeOff className="h-3 w-3"/>}Alert lines</button>
                 <div className="flex rounded-lg border p-0.5">{([["1h","1H"],["6h","6H"],["today","1D"],["7d","7D"],["30d","30D"]] as const).map(([k,l])=><button key={k} onClick={()=>setPreset(k)} className={cn("rounded-md px-2 py-1 text-[11px]",preset===k?"bg-blue-600 text-white":"hover:bg-slate-100")}>{l}</button>)}<Popover><PopoverTrigger asChild><button className={cn("flex items-center gap-1 rounded-md px-2 py-1 text-[11px]",preset==="custom"&&"bg-blue-600 text-white")}><CalendarIcon className="h-3 w-3"/>Custom</button></PopoverTrigger><PopoverContent className="w-auto p-0" align="end"><Calendar mode="range" selected={customRange} onSelect={r=>{setCustomRange(r);setPreset("custom")}} numberOfMonths={2} initialFocus className="p-3 pointer-events-auto"/></PopoverContent></Popover></div>
               </div>
             </div>
+            {selected && <SensorDetails sensor={selected} color={SENSOR_COLORS[sensors.indexOf(selected)%6]}/>}
             <div className="grid min-h-0 flex-1 grid-rows-2 gap-2">
               {([
                 { metric: "temperature", title: "Temperature", unit: "°C", data: temperatureHistory, scale: temperatureScale, alert: temperatureAlert, draft: temperatureDraft, setDraft: setTemperatureDraft, step: "0.1", Icon: Thermometer, iconTone: "bg-orange-50 text-orange-600" },
                 { metric: "humidity", title: "Humidity", unit: "%RH", data: humidityHistory, scale: humidityScale, alert: humidityAlert, draft: humidityDraft, setDraft: setHumidityDraft, step: "1", Icon: Droplets, iconTone: "bg-sky-50 text-sky-600" },
               ] as const).map(({ metric, title, unit, data, scale, alert, draft, setDraft, step, Icon, iconTone }) => {
                 const axisError = pairError(draft.axisMin, draft.axisMax);
-                const alertError = permissions.canManageSensors ? pairError(draft.alertMin, draft.alertMax) : null;
                 return (
                 <section key={title} className="flex min-h-[120px] min-w-0 flex-col border-t pt-2 first:border-t-0 first:pt-0">
                   <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
@@ -295,30 +288,24 @@ function Dashboard() {
                       <h3 className="text-sm font-bold tracking-tight text-slate-800">{title}</h3>
                       <span className="text-[10px] font-medium text-slate-500">{unit}</span>
                       {alert && alert !== "mixed" && <span className="text-[10px] text-red-600">- - - Alert below {alert.min}{unit} / above {alert.max}{unit}</span>}
-                      {alert === "mixed" && <span className="text-[10px] text-amber-600">Alert range differs per sensor</span>}
+                      {alert === "mixed" && <span className="text-[10px] text-amber-600">Alert range differs per sensor · click a sensor to see its limits</span>}
                     </div>
                     <div className="flex flex-wrap items-center gap-1.5">
                       <button type="button" onClick={() => {
                         if (editingScale === metric) setEditingScale(null);
                         else {
-                          setDraft(draftFor(scale, alert));
+                          setDraft(scale ?? EMPTY_SCALE);
                           setEditingScale(metric);
                         }
-                      }} className="rounded-md border border-slate-200 px-2.5 py-1 text-[10px] font-medium text-slate-700 hover:bg-slate-50">Custom</button>
+                      }} className="rounded-md border border-slate-200 px-2.5 py-1 text-[10px] font-medium text-slate-700 hover:bg-slate-50">Scale</button>
                     </div>
                   </div>
                   {editingScale === metric && <div className="mb-1 flex flex-wrap items-end gap-x-3 gap-y-1 rounded-lg bg-slate-50 px-2 py-1.5">
-                    <span className="text-[10px] font-semibold text-slate-600">Chart zoom</span>
+                    <span className="text-[10px] font-semibold text-slate-600">Chart scale</span>
                     <label className="flex items-center gap-1 text-[10px] text-slate-500">Min<Input aria-label={`${title} axis minimum`} type="number" step={step} value={draft.axisMin} onChange={(event) => setDraft((current) => ({ ...current, axisMin: event.target.value }))} className="h-7 w-[4.25rem] px-1.5 text-xs"/></label>
                     <label className="flex items-center gap-1 text-[10px] text-slate-500">Max<Input aria-label={`${title} axis maximum`} type="number" step={step} value={draft.axisMax} onChange={(event) => setDraft((current) => ({ ...current, axisMax: event.target.value }))} className="h-7 w-[4.25rem] px-1.5 text-xs"/></label>
-                    {permissions.canManageSensors && <>
-                      <span className="text-[10px] font-semibold text-red-600">Alert all sensors when</span>
-                      <label className="flex items-center gap-1 text-[10px] text-red-600">below<Input aria-label={`${title} alert minimum`} type="number" step={step} value={draft.alertMin} onChange={(event) => setDraft((current) => ({ ...current, alertMin: event.target.value }))} className="h-7 w-[4.25rem] px-1.5 text-xs"/></label>
-                      <label className="flex items-center gap-1 text-[10px] text-red-600">above<Input aria-label={`${title} alert maximum`} type="number" step={step} value={draft.alertMax} onChange={(event) => setDraft((current) => ({ ...current, alertMax: event.target.value }))} className="h-7 w-[4.25rem] px-1.5 text-xs"/></label>
-                    </>}
-                    <Button type="button" size="sm" disabled={Boolean(axisError || alertError) || savingScale} onClick={() => saveChartScale(metric)} className="h-7 px-3 text-[10px]">{savingScale ? "Saving..." : "Save"}</Button>
-                    {(axisError || alertError) && <span className="text-[10px] text-slate-500">{axisError ? `Zoom: ${axisError}` : `Alert: ${alertError}`}</span>}
-                    {!axisError && !alertError && <span className="text-[10px] text-slate-400">Leave zoom empty for automatic</span>}
+                    <Button type="button" size="sm" disabled={Boolean(axisError)} onClick={() => saveChartScale(metric)} className="h-7 px-3 text-[10px]">Save</Button>
+                    {axisError ? <span className="text-[10px] text-slate-500">{axisError}</span> : <span className="text-[10px] text-slate-400">Leave empty for automatic</span>}
                   </div>}
                   <div className="min-h-0 flex-1">
                     <ResponsiveContainer width="100%" height="100%">
@@ -331,7 +318,7 @@ function Dashboard() {
                         <YAxis domain={yDomain(scale, alert)} ticks={chartTicks(scale)} interval={0} minTickGap={0} allowDataOverflow={Boolean(scale)} tick={<ChartYAxisTick unit={unit}/>} tickLine={false} axisLine={false}/>
                         <Tooltip labelStyle={{fontWeight:600}} formatter={(value) => [`${value} ${unit}`, ""]}/>
                         <Legend wrapperStyle={{fontSize:10}} iconType="circle" iconSize={6}/>
-                        {sensors.map((sensor,index)=><Line key={sensor.id} type="monotone" dataKey={`s${sensor.id}`} stroke={SENSOR_COLORS[index%6]} strokeOpacity={sensor.id===activeId?1:0.55} strokeWidth={sensor.id===activeId?2.75:1.75} dot={false} activeDot={{r:4}} name={sensor.name}/>) }
+                        {sensors.map((sensor,index)=>(selectedId===null||sensor.id===selectedId)&&<Line key={sensor.id} type="monotone" dataKey={`s${sensor.id}`} stroke={SENSOR_COLORS[index%6]} strokeWidth={selectedId===null?1.75:2.75} dot={false} activeDot={{r:4}} name={sensor.name}/>) }
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
@@ -343,7 +330,7 @@ function Dashboard() {
           <div className="grid min-h-0 gap-4 md:grid-cols-[minmax(0,1.3fr)_minmax(300px,1fr)]">
             <Card className="flex min-h-[260px] flex-col p-4">
               <div className="mb-3 flex justify-between"><h2 className="flex items-center gap-2 font-semibold"><MapPin className="h-4 w-4 text-blue-600"/>Floor Plan</h2><span className="text-xs text-slate-500">{sensors.length} points</span></div>
-              <div className="relative min-h-[190px] flex-1 overflow-hidden rounded-xl border bg-slate-50"><svg viewBox="0 0 800 450" className="absolute inset-0 h-full w-full" preserveAspectRatio="none"><rect x="40" y="30" width="650" height="390" fill="#fff" stroke="#334155" strokeWidth="4"/><path d="M 229 30 V 240 H 40" fill="none" stroke="#334155" strokeWidth="4"/><path d="M 229 240 H 590 V 30" fill="none" stroke="#334155" strokeWidth="4" strokeDasharray="8 8"/><rect x="63" y="416" width="81" height="8" fill="#fff"/><path d="M 67 340 V 420 M 67 340 A 72 72 0 0 1 139 420" fill="none" stroke="#334155" strokeWidth="4"/><rect x="67" y="60" width="163" height="34" fill="none" stroke="#cbd5e1" strokeDasharray="6 6"/><rect x="509" y="350" width="154" height="34" fill="none" stroke="#cbd5e1" strokeDasharray="6 6"/><text x="365" y="235" textAnchor="middle" fill="#94a3b8" fontSize="19" fontWeight="700">LABORATORY ROOM</text></svg>{sensors.map((sensor,index)=><button key={sensor.id} onClick={()=>setActiveId(sensor.id)} style={{left:`${sensor.x}%`,top:`${sensor.y}%`,backgroundColor:SENSOR_COLORS[index%6]}} className={cn("absolute grid h-7 w-7 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full text-xs font-bold text-white shadow",sensor.id===activeId&&"ring-4 ring-white")}>{sensor.id}</button>)}</div>
+              <div className="relative min-h-[190px] flex-1 overflow-hidden rounded-xl border bg-slate-50"><svg viewBox="0 0 800 450" className="absolute inset-0 h-full w-full" preserveAspectRatio="none"><rect x="40" y="30" width="650" height="390" fill="#fff" stroke="#334155" strokeWidth="4"/><path d="M 229 30 V 240 H 40" fill="none" stroke="#334155" strokeWidth="4"/><path d="M 229 240 H 590 V 30" fill="none" stroke="#334155" strokeWidth="4" strokeDasharray="8 8"/><rect x="63" y="416" width="81" height="8" fill="#fff"/><path d="M 67 340 V 420 M 67 340 A 72 72 0 0 1 139 420" fill="none" stroke="#334155" strokeWidth="4"/><rect x="67" y="60" width="163" height="34" fill="none" stroke="#cbd5e1" strokeDasharray="6 6"/><rect x="509" y="350" width="154" height="34" fill="none" stroke="#cbd5e1" strokeDasharray="6 6"/><text x="365" y="235" textAnchor="middle" fill="#94a3b8" fontSize="19" fontWeight="700">LABORATORY ROOM</text></svg>{sensors.map((sensor,index)=><button key={sensor.id} onClick={()=>toggleSensor(sensor.id)} style={{left:`${sensor.x}%`,top:`${sensor.y}%`,backgroundColor:SENSOR_COLORS[index%6]}} className={cn("absolute grid h-7 w-7 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full text-xs font-bold text-white shadow",sensor.id===selectedId&&"ring-4 ring-white",selectedId!==null&&sensor.id!==selectedId&&"opacity-40")}>{sensor.id}</button>)}</div>
             </Card>
             <Card className="flex min-h-[260px] flex-col p-4">
               <div className="mb-3 flex items-center justify-between">
@@ -372,6 +359,32 @@ function Dashboard() {
         </div></main>
       </div>
       <MobileNavigation />
+    </div>
+  );
+}
+
+/** One-sensor view: current values and that sensor's own alert range. */
+function SensorDetails({ sensor, color }: { sensor: Sensor; color: string }) {
+  const out = (value: number | null, low: number, high: number) => value != null && (value < low || value > high);
+  const item = "flex flex-col gap-0.5 rounded-lg bg-slate-50 px-3 py-2";
+  return (
+    <div className="mb-3 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
+      <div className={item}>
+        <span className="flex items-center gap-1.5 font-semibold text-slate-800"><span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }}/>{sensor.name}</span>
+        <span className="flex items-center gap-1 text-slate-500"><MapPin className="h-3 w-3"/>{sensor.location} · ID {sensor.deviceId}</span>
+      </div>
+      <div className={item}>
+        <span className="text-slate-500">Status</span>
+        <span className={cn("font-semibold", sensor.status === "Online" ? "text-emerald-600" : "text-slate-500")}>{sensor.status}</span>
+      </div>
+      <div className={item}>
+        <span className="flex items-center gap-1 text-slate-500"><Thermometer className="h-3 w-3 text-orange-500"/>Temperature</span>
+        <span className={cn("font-semibold", out(sensor.temperature, sensor.minTemp, sensor.maxTemp) && "text-red-600")}>{sensor.temperature?.toFixed(1) ?? "--"}°C <span className="font-normal text-slate-500">alert &lt;{sensor.minTemp} / &gt;{sensor.maxTemp}°C</span></span>
+      </div>
+      <div className={item}>
+        <span className="flex items-center gap-1 text-slate-500"><Droplets className="h-3 w-3 text-sky-500"/>Humidity</span>
+        <span className={cn("font-semibold", out(sensor.humidity, sensor.minHumidity, sensor.maxHumidity) && "text-red-600")}>{sensor.humidity?.toFixed(0) ?? "--"}%RH <span className="font-normal text-slate-500">alert &lt;{sensor.minHumidity} / &gt;{sensor.maxHumidity}%RH</span></span>
+      </div>
     </div>
   );
 }

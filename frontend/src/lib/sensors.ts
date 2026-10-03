@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { apiFetch, apiJson } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 
 
 export type SensorStatus = "Online" | "Offline";
@@ -138,12 +138,6 @@ export async function saveSensorConfig(
     const { error } = (await response.json().catch(() => ({}))) as { error?: string };
     throw new Error(error ?? `Could not save sensor (HTTP ${response.status})`);
   }
-  notifySensorsChanged();
-}
-
-/** Admin: one alert range for every sensor (and the default for new ones). */
-export async function saveAlertRange(metric: "temperature" | "humidity", min: number, max: number): Promise<void> {
-  await apiJson("/api/thresholds", { method: "PUT", json: { metric, min, max } });
   notifySensorsChanged();
 }
 
