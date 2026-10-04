@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, Clock, MessageSquareText, RefreshCw, Send, Users, XCircle } from "lucide-react";
+import { CheckCircle2, Clock, ExternalLink, MessageSquareText, RefreshCw, Send, Users, XCircle } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -9,6 +9,9 @@ import { apiFetch, poll } from "@/lib/api";
 import { toast } from "sonner";
 import { requireApproved, useCurrentUser } from "@/lib/auth";
 import { permissionsFor } from "@/lib/roles";
+import lineQrImage from "@/assets/line-qr.png";
+
+const LINE_ADD_FRIEND_URL = "https://line.me/R/ti/p/%40886efqgu";
 
 export const Route = createFileRoute("/line-log")({
   beforeLoad: requireApproved,
@@ -122,6 +125,26 @@ function LineLogPage() {
             tone={(counts.failed ?? 0) > 0 ? "text-red-700" : undefined}
           />
         </div>
+
+        <Card className="flex flex-col items-center gap-4 p-4 sm:flex-row">
+          <img src={lineQrImage} alt="QR code to add the alert bot on LINE" className="h-32 w-32 shrink-0 rounded-md border" />
+          <div className="space-y-2 text-center sm:text-left">
+            <p className="font-semibold text-slate-800">Get these alerts in LINE</p>
+            <p className="text-sm text-slate-500">
+              Scan this QR code with the LINE app and add the bot as a friend. You will receive every alert listed below on
+              your phone.
+            </p>
+            <a
+              href={LINE_ADD_FRIEND_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-md bg-[#06C755] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#05b34c]"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              Add friend on LINE
+            </a>
+          </div>
+        </Card>
 
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap gap-1.5">
