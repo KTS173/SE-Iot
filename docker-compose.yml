@@ -42,10 +42,10 @@ services:
       GOOGLE_CLIENT_SECRET: "${GOOGLE_CLIENT_SECRET:-}"
       GOOGLE_ALLOWED_DOMAINS: "${GOOGLE_ALLOWED_DOMAINS:-}"
     volumes:
-      # Defaults to the named volume on the SD card. Set DATA_DIR in .env to an
+      # Defaults to the named volume on the SD card. Set HOST_DATA_DIR in .env to an
       # absolute host path (e.g. /mnt/se-iot-data) to store readings on an
       # external disk instead; anything not starting with / is read as a volume name.
-      - ${DATA_DIR:-sensor_data}:/data
+      - ${HOST_DATA_DIR:-sensor_data}:/data
     depends_on:
       - broker
     restart: unless-stopped

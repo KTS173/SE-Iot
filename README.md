@@ -113,7 +113,7 @@ mosquitto_pub -h tempse.local -u <user> -P <pass> \
 | `STORAGE_MIN_READINGS` | 100 | จำนวนข้อมูลล่าสุดที่ไม่ลบเสมอ |
 | `DEVICE_OFFLINE_SECONDS` | 120 | ไม่มีข้อมูลนานเท่านี้ ถือว่า offline |
 | `LINE_CHANNEL_ACCESS_TOKEN`, `LINE_CHANNEL_SECRET` | – | เปิดการแจ้งเตือนผ่าน LINE |
-| `DATA_DIR` | volume `sensor_data` | ที่เก็บฐานข้อมูล เช่น `/mnt/se-iot-data` |
+| `HOST_DATA_DIR` | volume `sensor_data` | พาธโฟลเดอร์ฐานข้อมูลบน host เช่น `/mnt/se-iot-data` |
 
 ## API
 
