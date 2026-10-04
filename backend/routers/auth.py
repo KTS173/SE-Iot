@@ -1,4 +1,5 @@
 """Sign up, sign in, sign out, and the signed-in user's own profile."""
+import ipaddress
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, Request, Response
@@ -24,8 +25,17 @@ def _start_session(request, response, user_id, remember):
     )
 
 
+# Only the frontend's nginx, on the Docker network, may say who the real client is.
+_TRUSTED_PROXIES = ipaddress.ip_network("172.16.0.0/12")
+
+
 def _client_address(request):
-    return request.headers.get("x-real-ip") or (request.client.host if request.client else "")
+    peer = request.client.host if request.client else ""
+    try:
+        trusted = ipaddress.ip_address(peer) in _TRUSTED_PROXIES
+    except ValueError:
+        trusted = False
+    return (trusted and request.headers.get("x-real-ip")) or peer
 
 
 @router.post("/signup", status_code=201)

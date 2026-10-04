@@ -54,7 +54,7 @@ docker compose up -d --build
 ```
 
 - หน้าเว็บ: `http://tempse.local:5174`
-- API: `http://tempse.local:5001`
+- API: `http://tempse.local:5174/api` (พอร์ต 5001 เปิดเฉพาะบน Pi เอง)
 - MQTT: `tempse.local:1883`
 - ค่าลับ (MQTT, LINE) อยู่ใน `.env` ข้าง `docker-compose.yml`
 

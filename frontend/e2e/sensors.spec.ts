@@ -122,15 +122,14 @@ test.describe("sensors management (admin)", () => {
     await expect(page.getByText("Sensor updated")).toBeVisible({ timeout: 3000 });
   });
 
-  test("BUG: changing the Sensor ID in Edit creates a duplicate instead of renaming", async ({ page }, testInfo) => {
-    bug(testInfo, "Edit keeps the Sensor ID input editable; Save PUTs to the new ID and leaves the old sensor in place");
-    test.fail();
+  test("Sensor ID cannot be changed in Edit, so no duplicate is created", async ({ page }) => {
     const id = `ren${Date.now().toString().slice(-6)}`;
     sql(`INSERT INTO sensor_config (device_id, name, location) VALUES ('${id}', 'Rename Me ${id}', 'Shelf')`);
     await page.reload();
     await row(page, `Rename Me ${id}`).getByRole("button", { name: "Edit" }).click();
     const idInput = field(page, "Sensor ID");
     try {
+      await expect(idInput).not.toBeEditable();
       // Either the ID is read-only (good) ...
       if (await idInput.isEditable()) {
         await idInput.fill(`${id}x`);

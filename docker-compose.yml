@@ -13,7 +13,8 @@ services:
     build: ./backend
     container_name: se-iot-backend
     ports:
-      - "5001:5000"
+      # Only reachable from the Pi itself; browsers go through the frontend's /api proxy.
+      - "127.0.0.1:5001:5000"
     environment:
       API_HOST: 0.0.0.0
       API_PORT: "5000"

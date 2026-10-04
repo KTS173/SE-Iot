@@ -107,8 +107,14 @@ def _find_or_create(google_id, email, name):
             return row
         row = connection.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
         if row is not None:
-            # Google has verified this address belongs to the same person.
-            connection.execute("UPDATE users SET google_id = ? WHERE id = ?", (google_id, row["id"]))
+            # Google has verified the address, but local sign-up never did: someone
+            # else may have registered it first. The Google user takes the account
+            # over, so drop its password and sessions; they can set a new password.
+            connection.execute(
+                "UPDATE users SET google_id = ?, password_hash = ? WHERE id = ?",
+                (google_id, auth.NO_PASSWORD, row["id"]),
+            )
+            connection.execute("DELETE FROM sessions WHERE user_id = ?", (row["id"],))
             return row
         username = _free_username(connection, email)
     user, _ = auth.create_user(

@@ -1,4 +1,5 @@
 """Per-device display settings and alert thresholds."""
+import math
 
 CONFIG_DEFAULTS = {
     "x": 50.0, "y": 50.0,
@@ -50,6 +51,8 @@ def read_config_payload(payload):
             values[key] = float(raw)
         except (TypeError, ValueError):
             return None, f"{key} must be a number"
+        if not math.isfinite(values[key]):
+            return None, f"{key} must be a finite number"
 
     if values["min_temp"] > values["max_temp"]:
         return None, "min_temp cannot exceed max_temp"

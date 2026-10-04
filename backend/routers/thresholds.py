@@ -1,4 +1,5 @@
 """One alert range for every sensor, set by an admin from the dashboard chart."""
+import math
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends
@@ -33,6 +34,8 @@ def set_thresholds(payload: dict[str, Any] | None = Body(None)):
         low, high = float(payload.get("min")), float(payload.get("max"))
     except (TypeError, ValueError):
         return error_response("min and max must be numbers", 400)
+    if not (math.isfinite(low) and math.isfinite(high)):
+        return error_response("min and max must be finite numbers", 400)
     if low >= high:
         return error_response("min must be lower than max", 400)
     if metric == "humidity" and not (0 <= low and high <= 100):

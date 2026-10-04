@@ -187,8 +187,6 @@ def test_infinite_reading_does_not_break_the_dashboard(admin, get_db, path):
 
 # --- sensor settings / thresholds -----------------------------------------------
 
-@bug("sensor_config.read_config_payload accepts float('inf'); once stored, GET /api/devices "
-     "returns 500 for every user")
 def test_infinite_device_threshold_is_rejected(admin):
     response = admin.put(
         "/api/devices/001", json={"name": "Bench", "location": "Lab", "max_temp": "Infinity"}
@@ -197,8 +195,6 @@ def test_infinite_device_threshold_is_rejected(admin):
     assert admin.get("/api/devices").status_code == 200
 
 
-@bug("sensor_config.read_config_payload accepts 'nan' (comparisons with NaN are False); "
-     "SQLite turns it into NULL and the NOT NULL insert gives a 500 instead of a 400")
 def test_nan_device_threshold_is_a_400(admin):
     response = admin.put(
         "/api/devices/001", json={"name": "Bench", "location": "Lab", "min_temp": "nan"}
@@ -206,8 +202,6 @@ def test_nan_device_threshold_is_a_400(admin):
     assert response.status_code == 400
 
 
-@bug("routers/thresholds.py:33 accepts -inf/inf for temperature; afterwards GET /api/thresholds "
-     "and GET /api/devices return 500")
 def test_infinite_default_thresholds_are_rejected(admin):
     response = admin.put(
         "/api/thresholds", json={"metric": "temperature", "min": "-inf", "max": "inf"}
@@ -216,8 +210,6 @@ def test_infinite_default_thresholds_are_rejected(admin):
     assert admin.get("/api/thresholds").status_code == 200
 
 
-@bug("routers/thresholds.py:36 'low >= high' is False for NaN, so a NaN temperature range "
-     "passes validation and the UPDATE fails with a 500")
 def test_nan_default_threshold_is_a_400(admin, add_config):
     add_config("001")
     response = admin.put(
@@ -339,11 +331,7 @@ def test_non_ascii_state_returns_to_signin(get_db, google_on, monkeypatch):
     assert response.status_code == 303
 
 
-@bug("routers/google.py:107-111 links a Google login to any account with the same email, "
-     "but local sign-up never verifies email: an attacker who signs up first with the "
-     "victim's address gets the victim's Google logins into an account the attacker "
-     "controls by password (pre-account takeover)")
-def test_google_does_not_adopt_an_unverified_local_account(new_client, google_on):
+def test_google_takes_over_an_unverified_local_account(new_client, google_on):
     attacker = new_client()
     signup = attacker.post("/api/auth/signup", json={
         "name": "Mallory", "username": "mallory", "email": "victim@gmail.com",
@@ -353,13 +341,13 @@ def test_google_does_not_adopt_an_unverified_local_account(new_client, google_on
 
     victim = new_client()
     sign_in_with_google(victim, google_on, email="victim@gmail.com", sub="google-victim")
-    victim_account = victim.get("/api/auth/me").json()["data"]
-    assert victim_account["id"] != signup.json()["data"]["id"]
+    assert victim.get("/api/auth/me").json()["data"]["has_password"] is False
+    # The pre-registered password and session no longer get anyone in.
+    assert attacker.get("/api/auth/me").status_code == 401
+    login = new_client().post("/api/auth/login", json={"identifier": "mallory", "password": PASSWORD})
+    assert login.status_code == 401
 
 
-@bug("routers/auth.py:27 trusts the client-supplied X-Real-IP header for the lockout key; "
-     "the backend port (5001) is published directly in docker-compose, so rotating the "
-     "header gives unlimited password guesses")
 def test_lockout_cannot_be_dodged_by_changing_x_real_ip(new_client, make_user):
     make_user("jane")
     browser = new_client()
@@ -427,3 +415,15 @@ def test_notifications_filter_by_status(client, get_db):
             )
     data = client.get("/api/notifications", params={"status": "failed", "limit": 1}).json()["data"]
     assert [row["alert_id"] for row in data] == [2]
+
+
+def test_x_real_ip_is_trusted_from_the_docker_network():
+    from types import SimpleNamespace
+
+    from routers.auth import _client_address
+
+    def request(peer, header="203.0.113.9"):
+        return SimpleNamespace(client=SimpleNamespace(host=peer), headers={"x-real-ip": header})
+
+    assert _client_address(request("172.18.0.4")) == "203.0.113.9"
+    assert _client_address(request("10.82.36.50")) == "10.82.36.50"
