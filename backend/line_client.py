@@ -444,7 +444,8 @@ def start_worker():
     _worker.start()
 
 
-def list_deliveries(limit=50):
+def list_deliveries(limit=50, from_=None, to=None):
+    """Newest first; `from_`/`to` are ISO timestamps bounding created_at."""
     if _get_db is None:
         return []
     with _get_db() as connection:
@@ -454,10 +455,32 @@ def list_deliveries(limit=50):
                    recipient_count, last_error, created_at, last_attempt_at,
                    next_attempt_at, delivered_at
             FROM notification_deliveries
+            WHERE (:from IS NULL OR created_at >= :from)
+              AND (:to IS NULL OR created_at <= :to)
             ORDER BY id DESC
-            LIMIT ?
+            LIMIT :limit
             """,
-            (limit,),
+            {"from": from_, "to": to, "limit": limit},
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def delivery_days(offset=0):
+    """Days that have messages, as local dates for a viewer `offset` seconds from UTC."""
+    if _get_db is None:
+        return []
+    with _get_db() as connection:
+        rows = connection.execute(
+            """
+            SELECT DATE(CAST(strftime('%s', created_at) AS INTEGER) + :offset,
+                        'unixepoch') AS day,
+                   COUNT(*) AS total,
+                   SUM(status = 'failed') AS failed
+            FROM notification_deliveries
+            GROUP BY day
+            ORDER BY day
+            """,
+            {"offset": offset},
         ).fetchall()
     return [dict(row) for row in rows]
 

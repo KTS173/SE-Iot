@@ -1,8 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, Clock, ExternalLink, MessageSquareText, RefreshCw, Send, Users, XCircle } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { endOfDay, format, startOfDay, subDays } from "date-fns";
+import type { DateRange } from "react-day-picker";
+import { Calendar as CalendarIcon, CheckCircle2, Clock, ExternalLink, MessageSquareText, RefreshCw, Send, Users, X, XCircle } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { apiFetch, poll } from "@/lib/api";
@@ -52,6 +56,36 @@ const statusStyle: Record<DeliveryStatus, string> = {
 
 const filters: ("all" | DeliveryStatus)[] = ["all", "sent", "pending", "failed", "skipped"];
 
+interface LogDay {
+  day: string;
+  total: number;
+  failed: number;
+}
+
+type DatePreset = "all" | "today" | "7d" | "30d" | "custom";
+
+const datePresets: [Exclude<DatePreset, "custom">, string][] = [
+  ["all", "All dates"],
+  ["today", "Today"],
+  ["7d", "7D"],
+  ["30d", "30D"],
+];
+
+function presetRange(preset: DatePreset): DateRange | undefined {
+  const today = new Date();
+  if (preset === "today") return { from: today, to: today };
+  if (preset === "7d") return { from: subDays(today, 6), to: today };
+  if (preset === "30d") return { from: subDays(today, 29), to: today };
+  return undefined;
+}
+
+function rangeLabel(range: DateRange | undefined): string {
+  if (!range?.from) return "All dates";
+  const from = format(range.from, "d MMM yyyy");
+  if (!range.to || format(range.to, "yyyy-MM-dd") === format(range.from, "yyyy-MM-dd")) return from;
+  return `${format(range.from, "d MMM")} – ${format(range.to, "d MMM yyyy")}`;
+}
+
 function formatTime(value: string | null): string {
   if (!value) return "—";
   const date = new Date(value);
@@ -62,26 +96,50 @@ function LineLogPage() {
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [status, setStatus] = useState<LineStatus | null>(null);
   const [filter, setFilter] = useState<"all" | DeliveryStatus>("all");
+  const [datePreset, setDatePreset] = useState<DatePreset>("all");
+  const [range, setRange] = useState<DateRange | undefined>();
+  const [days, setDays] = useState<LogDay[]>([]);
   const [loading, setLoading] = useState(true);
   const [testing, setTesting] = useState(false);
   const { canSendLineTest } = permissionsFor(useCurrentUser());
 
+  // Local midnight to end of day, so a picked date means that whole day here.
+  const query = useMemo(() => {
+    const params = new URLSearchParams({ limit: "500" });
+    if (range?.from) {
+      params.set("from", startOfDay(range.from).toISOString());
+      params.set("to", endOfDay(range.to ?? range.from).toISOString());
+    }
+    return params.toString();
+  }, [range]);
+
   const load = useCallback(async () => {
     try {
-      const [logResponse, statusResponse] = await Promise.all([
-        apiFetch(`/api/notifications?limit=200`),
+      const offset = -new Date().getTimezoneOffset() * 60;
+      const [logResponse, statusResponse, daysResponse] = await Promise.all([
+        apiFetch(`/api/notifications?${query}`),
         apiFetch(`/api/line/status`),
+        apiFetch(`/api/notifications/days?offset=${offset}`),
       ]);
       if (logResponse.ok) setDeliveries(((await logResponse.json()) as { data: Delivery[] }).data);
       if (statusResponse.ok) setStatus(((await statusResponse.json()) as { data: LineStatus }).data);
+      if (daysResponse.ok) setDays(((await daysResponse.json()) as { data: LogDay[] }).data);
     } catch {
       // Keep the last loaded log during a temporary network failure.
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [query]);
 
   useEffect(() => poll(load, 15_000), [load]);
+
+  const choosePreset = (preset: DatePreset) => {
+    setDatePreset(preset);
+    setRange(presetRange(preset));
+  };
+
+  const dayInfo = useMemo(() => new Map(days.map(item => [item.day, item])), [days]);
+  const dayKey = (date: Date) => format(date, "yyyy-MM-dd");
 
   const sendTest = async () => {
     setTesting(true);
@@ -147,7 +205,7 @@ function LineLogPage() {
         </Card>
 
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             {filters.map(item => (
               <button
                 key={item}
@@ -161,6 +219,76 @@ function LineLogPage() {
                 {item}
               </button>
             ))}
+            <span className="mx-1 hidden h-5 w-px bg-slate-300 sm:block" />
+            {datePresets.map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => choosePreset(key)}
+                className={cn(
+                  "rounded-full px-3 py-1.5 text-xs font-semibold transition-colors",
+                  datePreset === key ? "bg-blue-600 text-white" : "bg-white text-slate-600 hover:bg-slate-200",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors",
+                    datePreset === "custom" ? "bg-blue-600 text-white" : "bg-white text-slate-600 hover:bg-slate-200",
+                  )}
+                >
+                  <CalendarIcon className="h-3.5 w-3.5" />
+                  {datePreset === "custom" ? rangeLabel(range) : "Pick dates"}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  mode="range"
+                  selected={range}
+                  onSelect={next => {
+                    setRange(next);
+                    setDatePreset(next?.from ? "custom" : "all");
+                  }}
+                  numberOfMonths={2}
+                  defaultMonth={range?.from ?? subDays(new Date(), 30)}
+                  disabled={{ after: new Date() }}
+                  modifiers={{
+                    logged: date => {
+                      const info = dayInfo.get(dayKey(date));
+                      return !!info && info.failed === 0;
+                    },
+                    loggedFailed: date => (dayInfo.get(dayKey(date))?.failed ?? 0) > 0,
+                    empty: date => !dayInfo.has(dayKey(date)),
+                  }}
+                  modifiersClassNames={{
+                    logged: "relative font-semibold after:absolute after:bottom-1 after:left-1/2 after:h-1 after:w-1 after:-translate-x-1/2 after:rounded-full after:bg-emerald-500",
+                    loggedFailed: "relative font-semibold after:absolute after:bottom-1 after:left-1/2 after:h-1 after:w-1 after:-translate-x-1/2 after:rounded-full after:bg-red-500",
+                    empty: "text-slate-400",
+                  }}
+                  initialFocus
+                  className="pointer-events-auto p-3"
+                />
+                <div className="flex items-center gap-4 border-t px-4 py-2 text-xs text-slate-500">
+                  <span className="flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />Has messages</span>
+                  <span className="flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-red-500" />Has failed messages</span>
+                </div>
+              </PopoverContent>
+            </Popover>
+            {datePreset !== "all" && (
+              <button
+                type="button"
+                onClick={() => choosePreset("all")}
+                className="rounded-full p-1.5 text-slate-500 hover:bg-slate-200"
+                aria-label="Clear date filter"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={load} className="gap-1.5">
@@ -175,6 +303,10 @@ function LineLogPage() {
             )}
           </div>
         </div>
+
+        <p className="text-xs text-slate-500">
+          {visible.length} message{visible.length === 1 ? "" : "s"} · {rangeLabel(range)}
+        </p>
 
         <Card className="overflow-hidden">
           <div className="overflow-x-auto">
@@ -216,7 +348,7 @@ function LineLogPage() {
                 {visible.length === 0 && (
                   <tr>
                     <td colSpan={6} className="px-5 py-10 text-center text-slate-500">
-                      {loading ? "Loading..." : "No LINE messages recorded yet"}
+                      {loading ? "Loading..." : range?.from ? "No LINE messages on these dates" : "No LINE messages recorded yet"}
                     </td>
                   </tr>
                 )}

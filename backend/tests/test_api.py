@@ -163,6 +163,33 @@ def test_alerts_and_notifications_endpoints(client, add_config):
     assert client.get("/api/notifications").json()["data"][0]["status"] == "skipped"
 
 
+def test_notifications_filter_by_date_and_list_days(client, get_db):
+    rows = [
+        (1, "2026-10-02T16:30:00+00:00", "sent"),    # 23:30 on 2 Oct in Bangkok
+        (2, "2026-10-02T17:30:00+00:00", "failed"),  # 00:30 on 3 Oct in Bangkok
+        (3, "2026-10-03T10:00:00+00:00", "sent"),
+    ]
+    with get_db() as connection:
+        for alert_id, created_at, status in rows:
+            connection.execute(
+                "INSERT INTO notification_deliveries (alert_id, event_state, channel, "
+                "dedupe_key, retry_key, message, status, created_at) "
+                "VALUES (?, 'opened', 'line', ?, ?, 'msg', ?, ?)",
+                (alert_id, f"k{alert_id}", f"r{alert_id}", status, created_at),
+            )
+
+    data = client.get("/api/notifications", params={
+        "from": "2026-10-02T17:00:00.000Z", "to": "2026-10-03T16:59:59.999Z",
+    }).json()["data"]
+    assert [row["alert_id"] for row in data] == [3, 2]
+
+    days = client.get("/api/notifications/days", params={"offset": 7 * 3600}).json()["data"]
+    assert days == [
+        {"day": "2026-10-02", "total": 1, "failed": 0},
+        {"day": "2026-10-03", "total": 2, "failed": 1},
+    ]
+
+
 @pytest.mark.parametrize("path", ["/api/alerts", "/api/notifications"])
 def test_list_limit_must_be_numeric(client, path):
     response = client.get(path, params={"limit": "abc"})
