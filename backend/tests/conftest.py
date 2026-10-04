@@ -24,6 +24,18 @@ os.environ.update(
         "GOOGLE_CLIENT_SECRET": "",
         "GOOGLE_ALLOWED_DOMAINS": "",
         "PUBLIC_URL": "",
+        # Pinned so a developer's .env (loaded by config.py) cannot change
+        # behaviour the tests depend on, or hand the MQTT client real credentials.
+        "MQTT_USERNAME": "",
+        "MQTT_PASSWORD": "",
+        "ALERT_HYSTERESIS": "0.5",
+        "ALERT_CHECK_SECONDS": "60",
+        "ALERT_TIMEZONE": "Asia/Bangkok",
+        "LINE_MAX_ATTEMPTS": "5",
+        "LINE_RETRY_BASE_SECONDS": "30",
+        "LINE_POLL_SECONDS": "5",
+        "SESSION_HOURS": "8",
+        "REMEMBER_DAYS": "30",
     }
 )
 
@@ -33,6 +45,21 @@ import config  # noqa: E402
 import db as db_module  # noqa: E402
 import line_client  # noqa: E402
 import storage  # noqa: E402
+
+
+# Belt and braces: even if a token leaked in, no test may reach the network.
+assert line_client.channel_access_token == "", "a real LINE token reached the tests"
+
+
+@pytest.fixture(autouse=True)
+def no_network(monkeypatch):
+    """Any real HTTP request fails loudly; tests patch requests.post/get with fakes."""
+    import requests
+
+    def blocked(*args, **kwargs):
+        raise RuntimeError("network access is disabled in tests")
+
+    monkeypatch.setattr(requests.Session, "request", blocked)
 
 
 class FakeDisk:
