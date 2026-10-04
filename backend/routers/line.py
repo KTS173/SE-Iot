@@ -27,7 +27,8 @@ async def line_webhook(request: Request):
     if not line_client.verify_signature(body, signature):
         return error_response("invalid signature", 403)
     try:
-        events = json.loads(body.decode("utf-8")).get("events", [])
+        payload = json.loads(body.decode("utf-8"))
+        events = payload.get("events", []) if isinstance(payload, dict) else []
         # Handling may call the LINE API; keep that off the event loop.
         await run_in_threadpool(line_client.handle_webhook_events, events)
     except (UnicodeDecodeError, json.JSONDecodeError, KeyError) as error:

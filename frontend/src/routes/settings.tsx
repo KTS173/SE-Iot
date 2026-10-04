@@ -1,11 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { Camera, KeyRound, Save, Trash2, UserRound } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Label, LabelledChild } from "@/components/ui/label";
 import { FieldError } from "@/components/ui/modal";
 import { changePassword as submitPasswordChange, refreshUser, requireApproved, updateProfile as submitProfile, useCurrentUser } from "@/lib/auth";
 import { toast } from "sonner";
@@ -95,4 +95,5 @@ function SettingsPage() {
     <form onSubmit={changePassword}><Card className="overflow-hidden"><div className="border-b px-5 py-4"><h2 className="flex items-center gap-2 font-semibold"><KeyRound className="h-4 w-4 text-blue-600"/>Password & Security</h2><p className="mt-1 text-sm text-slate-500">{currentUser?.has_password === false ? "You sign in with Google. Set a password to also sign in with your username." : "Changing your password signs out your other devices"}</p></div><div className="grid gap-4 p-5 sm:grid-cols-2">{currentUser?.has_password !== false && <div className="sm:col-span-2"><ProfileField label="Current password" error={passwordErrors.current}><Input type="password" autoComplete="current-password" value={password.current} onChange={updatePassword("current")} placeholder="Enter current password"/></ProfileField></div>}<ProfileField label="New password" error={passwordErrors.next}><Input type="password" autoComplete="new-password" value={password.next} onChange={updatePassword("next")} placeholder="At least 8 characters"/></ProfileField><ProfileField label="Confirm new password" error={passwordErrors.confirm}><Input type="password" autoComplete="new-password" value={password.confirm} onChange={updatePassword("confirm")} placeholder="Repeat new password"/></ProfileField></div><div className="flex justify-end border-t bg-slate-50 px-5 py-3"><Button type="submit" disabled={savingPassword} className="gap-2 bg-blue-600 hover:bg-blue-700"><KeyRound className="h-4 w-4"/>{savingPassword ? "Updating..." : "Update Password"}</Button></div></Card></form>
   </div></AppShell>;
 }
-function ProfileField({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) { return <div><Label className="mb-1.5 block text-slate-700">{label}</Label>{children}<FieldError>{error}</FieldError></div>; }
+function ProfileField({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) { const id = useId(); return <div><Label htmlFor={id} className="mb-1.5 block text-slate-700">{label}</Label><LabelledChild id={id}>{children}</LabelledChild><FieldError>{error}</FieldError></div>; }
+

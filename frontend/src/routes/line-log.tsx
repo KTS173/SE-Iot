@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { endOfDay, format, startOfDay, subDays } from "date-fns";
+import { endOfDay, format, isValid, parseISO, startOfDay, subDays } from "date-fns";
 import type { DateRange } from "react-day-picker";
 import { Calendar as CalendarIcon, CheckCircle2, Clock, ExternalLink, MessageSquareText, RefreshCw, Send, Users, X, XCircle } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
@@ -13,6 +13,7 @@ import { apiFetch, poll } from "@/lib/api";
 import { toast } from "sonner";
 import { requireApproved, useCurrentUser } from "@/lib/auth";
 import { permissionsFor } from "@/lib/roles";
+import { useMediaQuery } from "@/lib/use-media-query";
 import lineQrImage from "@/assets/line-qr.png";
 
 const LINE_ADD_FRIEND_URL = "https://line.me/R/ti/p/%40886efqgu";
@@ -82,6 +83,34 @@ function presetRange(preset: DatePreset): DateRange | undefined {
   return undefined;
 }
 
+/** Filters saved in the address bar, so refresh, back and shared links keep them. */
+function readUrlFilters(): { status: "all" | DeliveryStatus; preset: DatePreset; range: DateRange | undefined } {
+  const params = new URLSearchParams(window.location.search);
+  const statusParam = params.get("status") as DeliveryStatus | null;
+  const status = statusParam && filters.includes(statusParam) ? statusParam : "all";
+  const presetParam = params.get("dates");
+  if (presetParam === "today" || presetParam === "7d" || presetParam === "30d") {
+    return { status, preset: presetParam, range: presetRange(presetParam) };
+  }
+  const from = parseISO(params.get("from") ?? "");
+  const to = parseISO(params.get("to") ?? "");
+  if (isValid(from)) return { status, preset: "custom", range: { from, to: isValid(to) ? to : from } };
+  return { status, preset: "all", range: undefined };
+}
+
+function writeUrlFilters(status: "all" | DeliveryStatus, preset: DatePreset, range: DateRange | undefined) {
+  const params = new URLSearchParams();
+  if (status !== "all") params.set("status", status);
+  if (preset === "custom" && range?.from) {
+    params.set("from", format(range.from, "yyyy-MM-dd"));
+    params.set("to", format(range.to ?? range.from, "yyyy-MM-dd"));
+  } else if (preset !== "all") {
+    params.set("dates", preset);
+  }
+  const query = params.toString();
+  window.history.replaceState(window.history.state, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
+}
+
 function rangeLabel(range: DateRange | undefined): string {
   if (!range?.from) return "All dates";
   const from = format(range.from, "d MMM yyyy");
@@ -98,9 +127,13 @@ function formatTime(value: string | null): string {
 function LineLogPage() {
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [status, setStatus] = useState<LineStatus | null>(null);
-  const [filter, setFilter] = useState<"all" | DeliveryStatus>("all");
-  const [datePreset, setDatePreset] = useState<DatePreset>("all");
-  const [range, setRange] = useState<DateRange | undefined>();
+  const [initial] = useState(readUrlFilters);
+  const [filter, setFilter] = useState<"all" | DeliveryStatus>(initial.status);
+  const [datePreset, setDatePreset] = useState<DatePreset>(initial.preset);
+  const [range, setRange] = useState<DateRange | undefined>(initial.range);
+  const wide = useMediaQuery("(min-width: 640px)");
+
+  useEffect(() => writeUrlFilters(filter, datePreset, range), [filter, datePreset, range]);
   const [days, setDays] = useState<LogDay[]>([]);
   const [loading, setLoading] = useState(true);
   const [testing, setTesting] = useState(false);
@@ -222,6 +255,7 @@ function LineLogPage() {
               <button
                 key={item}
                 type="button"
+                aria-pressed={filter === item}
                 onClick={() => setFilter(item)}
                 className={cn(
                   "rounded-full px-3 py-1.5 text-xs font-semibold capitalize transition-colors",
@@ -236,6 +270,7 @@ function LineLogPage() {
               <button
                 key={key}
                 type="button"
+                aria-pressed={datePreset === key}
                 onClick={() => choosePreset(key)}
                 className={cn(
                   "rounded-full px-3 py-1.5 text-xs font-semibold transition-colors",
@@ -262,11 +297,13 @@ function LineLogPage() {
                 <Calendar
                   mode="range"
                   selected={range}
-                  onSelect={next => {
-                    setRange(next);
-                    setDatePreset(next?.from ? "custom" : "all");
+                  onSelect={(next, day) => {
+                    // After a preset, a click starts a fresh pick instead of stretching the preset.
+                    const picked = datePreset === "custom" ? next : { from: day, to: day };
+                    setRange(picked);
+                    setDatePreset(picked?.from ? "custom" : "all");
                   }}
-                  numberOfMonths={2}
+                  numberOfMonths={wide ? 2 : 1}
                   defaultMonth={range?.from ?? subDays(new Date(), 30)}
                   disabled={{ after: new Date() }}
                   modifiers={{

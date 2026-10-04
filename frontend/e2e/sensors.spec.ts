@@ -103,9 +103,7 @@ test.describe("sensors management (admin)", () => {
     await expect(row(page, `Sensor ${id}`)).toHaveCount(0);
   });
 
-  test("BUG: ID column shows an invented number for non-numeric device IDs", async ({ page }, testInfo) => {
-    bug(testInfo, "Device 'sensor-01' is shown as ID '1003' (chartId fallback 1000+index) on Sensors page and floor plan");
-    test.fail();
+  test("ID column shows the real device ID", async ({ page }, testInfo) => {
     const r = row(page, "Sensor sensor-01");
     await shot(page, "bug-sensor-id-column-1003");
     await expect(r.getByRole("cell").nth(1)).toHaveText("sensor-01", { timeout: 3000 });

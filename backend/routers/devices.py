@@ -112,7 +112,15 @@ def delete_device(device_id: str, purge: bool = False):
             "ON CONFLICT(device_id) DO UPDATE SET removed_at = excluded.removed_at",
             (device_id, now),
         )
-        # Closed quietly: nobody needs a LINE message about a removed sensor.
+        # Closed quietly: nobody needs a LINE message about a removed sensor,
+        # including ones still queued for delivery.
+        connection.execute(
+            "UPDATE notification_deliveries SET status = 'skipped', "
+            "last_error = 'sensor removed', next_attempt_at = NULL "
+            "WHERE status = 'pending' AND alert_id IN "
+            "(SELECT id FROM alerts WHERE device_id = ?)",
+            (device_id,),
+        )
         connection.execute(
             "UPDATE alerts SET closed_at = ? WHERE device_id = ? AND closed_at IS NULL",
             (now, device_id),

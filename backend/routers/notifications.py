@@ -4,6 +4,8 @@ from fastapi import APIRouter, Depends, Query
 import alerts
 import auth
 import line_client
+import timestamps
+from routers import error_response
 
 router = APIRouter(dependencies=[Depends(auth.approved_user)])
 
@@ -22,8 +24,12 @@ def list_notifications(
     status: str | None = None,
 ):
     """Delivery log: one row per alert message, with attempts and outcome."""
+    try:
+        lower, upper = timestamps.bounds(from_, to)
+    except ValueError:
+        return error_response("from and to must be ISO timestamps", 400)
     return {"data": line_client.list_deliveries(
-        limit=max(1, min(limit, 500)), from_=from_, to=to, status=status
+        limit=max(1, min(limit, 500)), from_=lower, to=upper, status=status
     )}
 
 

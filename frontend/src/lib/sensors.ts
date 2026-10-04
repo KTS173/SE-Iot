@@ -78,9 +78,16 @@ function derivedPlacement(deviceId: string): { x: number; y: number } {
   return { x: 15 + (hash % 70), y: 15 + ((hash * 7) % 70) };
 }
 
-function chartId(deviceId: string, index: number): number {
+/**
+ * Numeric key for charts and selection. Non-numeric device IDs get a hash, not
+ * their list position, so the focused sensor survives the roster changing.
+ */
+function chartId(deviceId: string): number {
   const numeric = Number(deviceId);
-  return Number.isInteger(numeric) && numeric > 0 ? numeric : 1000 + index;
+  if (Number.isInteger(numeric) && numeric > 0 && numeric < 1_000_000) return numeric;
+  let hash = 0;
+  for (const char of deviceId) hash = (hash * 31 + char.charCodeAt(0)) % 1_000_000_000;
+  return 1_000_000 + hash;
 }
 
 interface DeviceRow {
@@ -100,9 +107,9 @@ interface DeviceRow {
   configured: boolean;
 }
 
-function toSensor(row: DeviceRow, index: number): Sensor {
+function toSensor(row: DeviceRow): Sensor {
   return {
-    id: chartId(row.device_id, index),
+    id: chartId(row.device_id),
     deviceId: row.device_id,
     name: row.name,
     location: row.location,

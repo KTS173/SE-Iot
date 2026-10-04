@@ -157,7 +157,7 @@ def google_callback(request: Request, code: str = "", state: str = "", error: st
     if error:
         return _back_to_signin("google_cancelled")
     saved = request.cookies.get(STATE_COOKIE, "").split(".")
-    if len(saved) != 3 or not code or not hmac.compare_digest(saved[0], state):
+    if len(saved) != 3 or not code or not hmac.compare_digest(saved[0].encode("utf-8"), state.encode("utf-8")):
         return _back_to_signin("google_state")
     _, nonce, remember = saved
 

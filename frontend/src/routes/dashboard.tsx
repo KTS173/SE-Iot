@@ -14,6 +14,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import type { DateRange } from "react-day-picker";
+import { useMediaQuery } from "@/lib/use-media-query";
 import type { AxisDomain } from "recharts/types/util/types";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine,
@@ -75,6 +76,11 @@ const HEALTH_DOT: Record<Health, string> = {
 };
 
 const HOUR = 3_600_000;
+
+/** Short text inside a floor-plan marker: the device ID, trimmed to fit. */
+function markerLabel(deviceId: string): string {
+  return deviceId.length > 4 ? `${deviceId.slice(0, 3)}…` : deviceId;
+}
 
 /**
  * `to` is the current instant, not midnight: ending a preset at the start of
@@ -166,6 +172,7 @@ function Dashboard() {
   const [editingScale, setEditingScale] = useState<Metric | null>(null);
   const [preset, setPreset] = useState<Preset>("7d");
   const [customRange, setCustomRange] = useState<DateRange | undefined>();
+  const wide = useMediaQuery("(min-width: 640px)");
   const [now, setNow] = useState<Date | null>(null);
 
   useEffect(() => {
@@ -257,7 +264,7 @@ function Dashboard() {
         <div className="border-t border-white/10 px-3 py-4"><Link to="/settings" className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-300 transition-colors hover:bg-white/10 hover:text-white"><Settings className="h-[18px] w-[18px]"/>Settings</Link></div>
       </aside>
       <div className="flex min-h-screen min-w-0 flex-col xl:ml-60 xl:h-screen">
-        <header className="flex h-16 shrink-0 items-center justify-between border-b bg-white px-4 sm:px-6"><div><h1 className="text-xl font-bold">Dashboard</h1><p className="hidden text-xs text-slate-500 sm:block">Real-time laboratory environment overview</p></div><div className="flex items-center gap-3"><div className="hidden text-right sm:block"><p className="text-sm font-semibold">{user.name}</p><p className="text-[11px] capitalize text-slate-500">{user.role}</p></div><div className="grid h-9 w-9 place-items-center rounded-full bg-blue-100 text-sm font-bold text-blue-700">{user.name.charAt(0).toUpperCase()}</div><Button variant="ghost" size="sm" onClick={logout}><LogOut className="h-4 w-4" /></Button></div></header>
+        <header className="flex h-16 shrink-0 items-center justify-between border-b bg-white px-4 sm:px-6"><div><h1 className="text-xl font-bold">Dashboard</h1><p className="hidden text-xs text-slate-500 sm:block">Real-time laboratory environment overview</p></div><div className="flex items-center gap-3"><div className="hidden text-right sm:block"><p className="text-sm font-semibold">{user.name}</p><p className="text-[11px] capitalize text-slate-500">{user.role}</p></div><div className="grid h-9 w-9 place-items-center rounded-full bg-blue-100 text-sm font-bold text-blue-700">{user.name.charAt(0).toUpperCase()}</div><Button variant="ghost" size="sm" onClick={logout} aria-label="Log out" title="Log out"><LogOut className="h-4 w-4" /></Button></div></header>
         <main className="min-h-0 flex-1 overflow-y-auto p-3 pb-20 sm:p-4 sm:pb-20 xl:p-5 xl:pb-5"><div className="mx-auto grid max-w-[1600px] gap-4 xl:h-full xl:grid-cols-[280px_minmax(0,1fr)] xl:grid-rows-[minmax(340px,1.35fr)_minmax(240px,1fr)]">
           <Card className="flex min-h-[430px] flex-col overflow-hidden xl:row-span-2 xl:min-h-0"><div className="flex items-center justify-between border-b px-4 py-4"><div><h2 className="font-semibold">Sensors</h2><p className="text-xs text-slate-500">{sensors.length} devices connected</p></div></div><div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3 dashboard-scrollbar">{sensors.map((sensor,index)=>{const isOffline=sensor.status==="Offline";const outOfRange=health(sensor)==="warning";return <button key={sensor.id} onClick={()=>toggleSensor(sensor.id)} aria-pressed={sensor.id===selectedId} title={sensor.id===selectedId?"Show all sensors":"Show only this sensor"} className={cn("w-full rounded-xl border p-3 text-left",sensor.id===selectedId?"border-blue-400 bg-blue-50 ring-2 ring-blue-200":isOffline?"border-dashed border-slate-400 bg-slate-100 text-slate-700 hover:bg-slate-200":outOfRange?"border-amber-400 bg-amber-50 hover:bg-amber-100":"hover:bg-slate-50")}><div className="mb-3 flex items-center justify-between"><div className="flex items-center gap-2"><span className={cn("h-2.5 w-2.5 rounded-full",isOffline&&"bg-slate-500")} style={isOffline?undefined:{backgroundColor:SENSOR_COLORS[index%6]}}/><span className={cn("text-sm font-semibold",isOffline&&"text-slate-800")}>{sensor.name}</span></div><span className={cn("text-[10px] font-semibold",outOfRange?"text-amber-600":sensor.status==="Online"?"text-emerald-600":"text-slate-500")}>{outOfRange?"Out of range":sensor.status}</span></div><div className={cn("grid grid-cols-2 gap-2 text-slate-600",isOffline&&"text-slate-600")}><span className="flex items-center gap-1 text-sm font-semibold"><Thermometer className={cn("h-4 w-4",isOffline?"text-slate-500":"text-orange-500")}/>{sensor.temperature?.toFixed(1) ?? "--"}°C</span><span className="flex items-center gap-1 text-sm font-semibold"><Droplets className={cn("h-4 w-4",isOffline?"text-slate-500":"text-sky-500")}/>{sensor.humidity?.toFixed(0) ?? "--"} %RH</span></div></button>})}</div></Card>
           <Card className="flex min-h-[400px] min-w-0 flex-col p-4 xl:min-h-0">
@@ -269,7 +276,7 @@ function Dashboard() {
               <div className="flex flex-wrap gap-2">
                 {selected && <button type="button" onClick={() => setSelectedId(null)} className="flex items-center gap-1 rounded-lg border px-2 py-1 text-[11px] hover:bg-slate-50"><X className="h-3 w-3"/>Show all</button>}
                 <button type="button" onClick={toggleAlertLines} aria-pressed={showAlertLines} className={cn("flex items-center gap-1 rounded-lg border px-2 py-1 text-[11px]", showAlertLines ? "border-red-200 text-red-600 hover:bg-red-50" : "text-slate-500 hover:bg-slate-50")}>{showAlertLines ? <Eye className="h-3 w-3"/> : <EyeOff className="h-3 w-3"/>}Alert lines</button>
-                <div className="flex rounded-lg border p-0.5">{([["1h","1H"],["6h","6H"],["today","1D"],["7d","7D"],["30d","30D"]] as const).map(([k,l])=><button key={k} onClick={()=>setPreset(k)} className={cn("rounded-md px-2 py-1 text-[11px]",preset===k?"bg-blue-600 text-white":"hover:bg-slate-100")}>{l}</button>)}<Popover><PopoverTrigger asChild><button className={cn("flex items-center gap-1 rounded-md px-2 py-1 text-[11px]",preset==="custom"&&"bg-blue-600 text-white")}><CalendarIcon className="h-3 w-3"/>Custom</button></PopoverTrigger><PopoverContent className="w-auto p-0" align="end"><Calendar mode="range" selected={customRange} onSelect={r=>{setCustomRange(r);setPreset("custom")}} numberOfMonths={2} initialFocus className="p-3 pointer-events-auto"/></PopoverContent></Popover></div>
+                <div className="flex rounded-lg border p-0.5">{([["1h","1H"],["6h","6H"],["today","1D"],["7d","7D"],["30d","30D"]] as const).map(([k,l])=><button key={k} onClick={()=>setPreset(k)} className={cn("rounded-md px-2 py-1 text-[11px]",preset===k?"bg-blue-600 text-white":"hover:bg-slate-100")}>{l}</button>)}<Popover><PopoverTrigger asChild><button className={cn("flex items-center gap-1 rounded-md px-2 py-1 text-[11px]",preset==="custom"&&"bg-blue-600 text-white")}><CalendarIcon className="h-3 w-3"/>Custom</button></PopoverTrigger><PopoverContent className="w-auto p-0" align="end"><Calendar mode="range" disabled={{after:new Date()}} selected={customRange} onSelect={r=>{setCustomRange(r);setPreset("custom")}} numberOfMonths={wide?2:1} initialFocus className="p-3 pointer-events-auto"/></PopoverContent></Popover></div>
               </div>
             </div>
             {selected && <SensorDetails sensor={selected} color={SENSOR_COLORS[sensors.indexOf(selected)%6]}/>}
@@ -306,7 +313,7 @@ function Dashboard() {
                     <Button type="button" size="sm" disabled={Boolean(axisError)} onClick={() => saveChartScale(metric)} className="h-7 px-3 text-[10px]">Save</Button>
                     {axisError ? <span className="text-[10px] text-slate-500">{axisError}</span> : <span className="text-[10px] text-slate-400">Leave empty for automatic</span>}
                   </div>}
-                  <div className="min-h-0 flex-1">
+                  <div className="min-h-[180px] flex-1 xl:min-h-0">
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={data} syncId="sensor-trends" margin={{top:4,right:12,left:-10,bottom:0}}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false}/>
@@ -329,7 +336,7 @@ function Dashboard() {
           <div className="grid min-h-0 gap-4 md:grid-cols-[minmax(0,1.3fr)_minmax(300px,1fr)]">
             <Card className="flex min-h-[260px] flex-col p-4">
               <div className="mb-3 flex justify-between"><h2 className="flex items-center gap-2 font-semibold"><MapPin className="h-4 w-4 text-blue-600"/>Floor Plan</h2><span className="text-xs text-slate-500">{sensors.length} points</span></div>
-              <div className="relative min-h-[190px] flex-1 overflow-hidden rounded-xl border bg-slate-50"><svg viewBox="0 0 800 450" className="absolute inset-0 h-full w-full" preserveAspectRatio="none"><rect x="40" y="30" width="650" height="390" fill="#fff" stroke="#334155" strokeWidth="4"/><path d="M 229 30 V 240 H 40" fill="none" stroke="#334155" strokeWidth="4"/><path d="M 229 240 H 590 V 30" fill="none" stroke="#334155" strokeWidth="4" strokeDasharray="8 8"/><rect x="63" y="416" width="81" height="8" fill="#fff"/><path d="M 67 340 V 420 M 67 340 A 72 72 0 0 1 139 420" fill="none" stroke="#334155" strokeWidth="4"/><rect x="67" y="60" width="163" height="34" fill="none" stroke="#cbd5e1" strokeDasharray="6 6"/><rect x="509" y="350" width="154" height="34" fill="none" stroke="#cbd5e1" strokeDasharray="6 6"/><text x="365" y="235" textAnchor="middle" fill="#94a3b8" fontSize="19" fontWeight="700">LABORATORY ROOM</text></svg>{sensors.map((sensor,index)=><button key={sensor.id} onClick={()=>toggleSensor(sensor.id)} style={{left:`${sensor.x}%`,top:`${sensor.y}%`,backgroundColor:SENSOR_COLORS[index%6]}} className={cn("absolute grid h-7 w-7 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full text-xs font-bold text-white shadow",sensor.id===selectedId&&"ring-4 ring-white",selectedId!==null&&sensor.id!==selectedId&&"opacity-40")}>{sensor.id}</button>)}</div>
+              <div className="relative min-h-[190px] flex-1 overflow-hidden rounded-xl border bg-slate-50"><svg viewBox="0 0 800 450" className="absolute inset-0 h-full w-full" preserveAspectRatio="none"><rect x="40" y="30" width="650" height="390" fill="#fff" stroke="#334155" strokeWidth="4"/><path d="M 229 30 V 240 H 40" fill="none" stroke="#334155" strokeWidth="4"/><path d="M 229 240 H 590 V 30" fill="none" stroke="#334155" strokeWidth="4" strokeDasharray="8 8"/><rect x="63" y="416" width="81" height="8" fill="#fff"/><path d="M 67 340 V 420 M 67 340 A 72 72 0 0 1 139 420" fill="none" stroke="#334155" strokeWidth="4"/><rect x="67" y="60" width="163" height="34" fill="none" stroke="#cbd5e1" strokeDasharray="6 6"/><rect x="509" y="350" width="154" height="34" fill="none" stroke="#cbd5e1" strokeDasharray="6 6"/><text x="365" y="235" textAnchor="middle" fill="#94a3b8" fontSize="19" fontWeight="700">LABORATORY ROOM</text></svg>{sensors.map((sensor,index)=><button key={sensor.id} onClick={()=>toggleSensor(sensor.id)} style={{left:`${sensor.x}%`,top:`${sensor.y}%`,backgroundColor:SENSOR_COLORS[index%6]}} aria-label={`Floor plan: ${sensor.name}`} title={sensor.name} className={cn("absolute grid h-7 min-w-7 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full px-1 text-xs font-bold text-white shadow",sensor.id===selectedId&&"ring-4 ring-white",selectedId!==null&&sensor.id!==selectedId&&"opacity-40")}>{markerLabel(sensor.deviceId)}</button>)}</div>
             </Card>
             <Card className="flex min-h-[260px] flex-col p-4">
               <div className="mb-3 flex items-center justify-between">
@@ -344,12 +351,12 @@ function Dashboard() {
                 </div>
                 <div className="flex flex-col justify-between rounded-xl border border-orange-100 bg-gradient-to-br from-orange-50 to-white p-3">
                   <span className="grid h-9 w-9 place-items-center rounded-lg bg-orange-100 text-orange-700"><Thermometer className="h-4 w-4"/></span>
-                  <div className="mt-3"><p className="text-[11px] font-medium text-slate-500">Average Temperature</p><p className="mt-0.5 whitespace-nowrap text-2xl font-bold tracking-tight text-slate-900">{avgTemp.toFixed(1)}<span className="ml-1 text-sm font-semibold text-orange-700">°C</span></p></div>
+                  <div className="mt-3"><p className="text-[11px] font-medium text-slate-500">Average Temperature</p><p className="mt-0.5 whitespace-nowrap text-2xl font-bold tracking-tight text-slate-900">{withTemp.length ? avgTemp.toFixed(1) : "--"}<span className="ml-1 text-sm font-semibold text-orange-700">°C</span></p></div>
                   <p className="mt-3 text-[10px] text-slate-400">Across online sensors</p>
                 </div>
                 <div className="flex flex-col justify-between rounded-xl border border-sky-100 bg-gradient-to-br from-sky-50 to-white p-3">
                   <span className="grid h-9 w-9 place-items-center rounded-lg bg-sky-100 text-sky-700"><Droplets className="h-4 w-4"/></span>
-                  <div className="mt-3"><p className="text-[11px] font-medium text-slate-500">Average Humidity</p><p className="mt-0.5 whitespace-nowrap text-2xl font-bold tracking-tight text-slate-900">{avgHum.toFixed(0)}<span className="ml-1 text-sm font-semibold text-sky-700">%RH</span></p></div>
+                  <div className="mt-3"><p className="text-[11px] font-medium text-slate-500">Average Humidity</p><p className="mt-0.5 whitespace-nowrap text-2xl font-bold tracking-tight text-slate-900">{withHum.length ? avgHum.toFixed(0) : "--"}<span className="ml-1 text-sm font-semibold text-sky-700">%RH</span></p></div>
                   <p className="mt-3 text-[10px] text-slate-400">Across online sensors</p>
                 </div>
               </div>

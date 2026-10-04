@@ -51,8 +51,6 @@ test.describe("sign in / sign out", () => {
   });
 
   test("Google error query param shows a toast and is removed from the URL", async ({ page }, testInfo) => {
-    bug(testInfo, "Google sign-in error toast (/signin?error=...) is never shown: it fires before <Toaster> subscribes, and the param is wiped");
-    test.fail();
     await page.goto("/signin?error=google_domain");
     await expect(page).toHaveURL(/\/signin$/); // the param is removed...
     await page.waitForTimeout(1500);

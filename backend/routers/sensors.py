@@ -4,8 +4,10 @@ from fastapi.responses import JSONResponse
 
 import auth
 import config
+import timestamps
 from db import get_db, row_to_reading
 from ingest import mqtt_client
+from routers import error_response
 from storage import get_storage_status
 
 router = APIRouter()
@@ -49,10 +51,12 @@ def sensor_history(
 ):
     limit = max(1, min(limit, 5000))
 
-    # received_at is stored as an ISO-8601 UTC string, so lexicographic
-    # comparison is chronological and the index on it still applies.
+    try:
+        lower, upper = timestamps.bounds(from_, to)
+    except ValueError:
+        return error_response("from and to must be ISO timestamps", 400)
     filters, params = [], []
-    for value, operator in ((from_, ">="), (to, "<=")):
+    for value, operator in ((lower, ">="), (upper, "<")):
         if value:
             filters.append(f"received_at {operator} ?")
             params.append(value)
@@ -90,6 +94,10 @@ def sensor_chart(
     """
     bucket = max(60, min(bucket, 86_400))
     offset = max(-14 * 3600, min(offset, 14 * 3600))
+    try:
+        lower, upper = timestamps.bounds(from_, to)
+    except ValueError:
+        return error_response("from and to must be ISO timestamps", 400)
     with get_db() as connection:
         rows = connection.execute(
             """
@@ -99,11 +107,11 @@ def sensor_chart(
                    ROUND(AVG(temperature), 1) AS temperature,
                    ROUND(AVG(humidity), 1) AS humidity
             FROM sensor_readings
-            WHERE received_at >= :from AND received_at <= :to
+            WHERE received_at >= :from AND received_at < :to
             GROUP BY device_id, start
             ORDER BY start, device_id
             """,
-            {"from": from_, "to": to, "bucket": bucket, "offset": offset},
+            {"from": lower, "to": upper, "bucket": bucket, "offset": offset},
         ).fetchall()
     return JSONResponse({"data": [
         {

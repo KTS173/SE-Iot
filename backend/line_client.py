@@ -202,14 +202,14 @@ def verify_signature(body, signature):
         channel_secret.encode("utf-8"), body, hashlib.sha256
     ).digest()
     expected = base64.b64encode(digest).decode("utf-8")
-    return hmac.compare_digest(expected, signature)
+    return hmac.compare_digest(expected.encode("utf-8"), signature.encode("utf-8"))
 
 
 def handle_webhook_events(events):
     """Keep the recipient list in step with who has the bot added."""
-    for event in events:
-        source = event.get("source", {})
-        user_id = source.get("userId")
+    for event in events if isinstance(events, list) else []:
+        source = event.get("source") if isinstance(event, dict) else None
+        user_id = source.get("userId") if isinstance(source, dict) else None
         if not user_id:
             continue
         event_type = event.get("type")
@@ -456,7 +456,7 @@ def list_deliveries(limit=50, from_=None, to=None, status=None):
                    next_attempt_at, delivered_at
             FROM notification_deliveries
             WHERE (:from IS NULL OR created_at >= :from)
-              AND (:to IS NULL OR created_at <= :to)
+              AND (:to IS NULL OR created_at < :to)
               AND (:status IS NULL OR status = :status)
             ORDER BY id DESC
             LIMIT :limit

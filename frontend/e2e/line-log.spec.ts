@@ -133,29 +133,30 @@ test.describe("LINE log", () => {
     await expect(page.getByText("No LINE messages match these filters")).toBeVisible();
   });
 
-  test("UX: after a preset, clicking a day extends the preset instead of starting a new pick", async ({ page }, testInfo) => {
-    testInfo.annotations.push({ type: "UX", description: "Today preset + click 3 days ago selects 3-days-ago..today (6 msgs), not that single day" });
+  test("after a preset, clicking a day starts a new pick", async ({ page }) => {
     await chip(page, "Today").click();
     await openPicker(page);
     await dayButton(page, 3, 0).click(); // the picker now opens on the current month
-    await expect(countLine(page)).toHaveText(/^6 messages · /);
+    await expect(countLine(page)).toHaveText(`1 message · ${dayLabel(3)}`);
   });
 
-  test("UX: filters are not kept in the URL - lost on refresh and on back navigation", async ({ page }, testInfo) => {
-    testInfo.annotations.push({ type: "UX", description: "Status/date filters live in component state only; refresh, back/forward and shared links reset them" });
+  test("filters are kept in the URL across refresh and back navigation", async ({ page }) => {
     await chip(page, "failed").click();
     await chip(page, "7D").click();
     await expect(countLine(page)).toHaveText(/^1 message · /);
-    expect(new URL(page.url()).search).toBe("");
+    expect(new URL(page.url()).search).toBe("?status=failed&dates=7d");
     await page.reload();
-    await expect(countLine(page)).toHaveText("10 messages · All dates");
-    await chip(page, "failed").click();
+    await expect(countLine(page)).toHaveText(/^1 message · /);
+    await expect(chip(page, "failed")).toHaveAttribute("aria-pressed", "true");
     await page.getByRole("link", { name: "Dashboard" }).first().click();
     await expect(page).toHaveURL(/\/dashboard$/);
     await expect(page.getByRole("heading", { name: "Sensor Trends" })).toBeVisible();
     await page.goBack();
-    await expect(page).toHaveURL(/\/line-log$/);
-    await expect(countLine(page)).toHaveText("10 messages · All dates");
+    await expect(page).toHaveURL(/\/line-log\?status=failed&dates=7d$/);
+    await expect(countLine(page)).toHaveText(/^1 message · /);
+    await chip(page, "All dates").click();
+    await chip(page, "all").click();
+    expect(new URL(page.url()).search).toBe("");
   });
 
   test("empty state does not say 'recorded yet' when filters hide messages", async ({ page }, testInfo) => {

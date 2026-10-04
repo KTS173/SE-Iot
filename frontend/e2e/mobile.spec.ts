@@ -66,6 +66,7 @@ test.describe("mobile 375px", () => {
     const box = (await popover.boundingBox())!;
     expect(box.x).toBeGreaterThanOrEqual(0);
     expect(box.x + box.width).toBeLessThanOrEqual(375 + 1);
+    await expect(page.getByRole("grid")).toHaveCount(1); // one month on a phone
     await page.waitForTimeout(400); // fade-in animation
     testInfo.annotations.push({ type: "measured", description: `calendar popover ${Math.round(box.width)}x${Math.round(box.height)} at y=${Math.round(box.y)} (viewport 375x812)` });
     await shot(page, "mobile-line-log-calendar", false);
@@ -82,9 +83,7 @@ test.describe("mobile 375px", () => {
     await expect(page.getByRole("button", { name: "Save Sensor" })).toBeInViewport();
   });
 
-  test("BUG: dashboard charts are squashed on phones (y-axis labels overlap)", async ({ page }, testInfo) => {
-    bug(testInfo, "At 375px the two charts share a fixed min-h-[400px] card with the controls, leaving ~60-90px per plot; 5 y-axis labels overlap");
-    test.fail();
+  test("dashboard charts are tall enough on phones", async ({ page }, testInfo) => {
     await apiLogin(page.request, "member");
     await page.goto("/dashboard");
     await expect(page.locator(".recharts-wrapper")).toHaveCount(2);

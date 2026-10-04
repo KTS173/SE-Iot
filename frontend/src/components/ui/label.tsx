@@ -18,4 +18,11 @@ const Label = React.forwardRef<
 ));
 Label.displayName = LabelPrimitive.Root.displayName;
 
-export { Label };
+/** Gives the single input inside a field an id, so its label is announced with it. */
+function LabelledChild({ id, children }: { id: string; children: React.ReactNode }) {
+  return React.isValidElement(children)
+    ? React.cloneElement(children as React.ReactElement<{ id?: string }>, { id })
+    : children;
+}
+
+export { Label, LabelledChild };

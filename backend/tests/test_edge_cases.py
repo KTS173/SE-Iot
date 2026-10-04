@@ -256,31 +256,22 @@ def test_notification_limit_cannot_be_bypassed_with_a_negative_number(client, ge
 DAY = {"from": "2026-10-03T17:00:00.000Z", "to": "2026-10-04T16:59:59.999Z"}
 
 
-@bug("line_client.list_deliveries compares ISO strings: '...17:00:00.000300+00:00' < "
-     "'...17:00:00.000Z' because '3' < 'Z', so a message from the first millisecond of the "
-     "local day is missing from that day")
 def test_message_in_first_millisecond_of_day_is_listed(client, get_db):
     _delivery(get_db, "2026-10-03T17:00:00.000300+00:00")
     assert len(client.get("/api/notifications", params=DAY).json()["data"]) == 1
 
 
-@bug("line_client.list_deliveries: isoformat() drops the fraction when microsecond == 0, "
-     "and '...17:00:00+00:00' < '...17:00:00.000Z' because '+' < '.'")
 def test_message_exactly_at_midnight_is_listed(client, get_db):
     _delivery(get_db, "2026-10-03T17:00:00+00:00")
     assert len(client.get("/api/notifications", params=DAY).json()["data"]) == 1
 
 
-@bug("routers/sensors.py:55-58 has the same string comparison for readings: a reading at "
-     "the exact 'from' instant is dropped")
 def test_reading_at_from_boundary_is_included(client, add_reading):
     add_reading(received_at="2026-10-03T17:00:00+00:00")
     response = client.get("/api/sensors", params=DAY)
     assert len(response.json()["data"]) == 1
 
 
-@bug("a message 0.5 ms after the 'to' instant is still returned: '...59.999500+00:00' <= "
-     "'...59.999Z' because '5' < 'Z'")
 def test_message_after_to_boundary_is_excluded(client, get_db):
     _delivery(get_db, "2026-10-04T16:59:59.999500+00:00")
     assert client.get("/api/notifications", params=DAY).json()["data"] == []
@@ -288,8 +279,6 @@ def test_message_after_to_boundary_is_excluded(client, get_db):
 
 # --- LINE webhook ------------------------------------------------------------------
 
-@bug("line_client.verify_signature passes a non-ASCII header to hmac.compare_digest, which "
-     "raises TypeError: an unauthenticated request gets a 500 instead of 403")
 def test_non_ascii_signature_is_a_403(raw_client):
     response = raw_client().post(
         "/api/line/webhook", content=b'{"events": []}',
@@ -298,8 +287,6 @@ def test_non_ascii_signature_is_a_403(raw_client):
     assert response.status_code == 403
 
 
-@bug("routers/line.py:28-32 only catches decode/JSON/KeyError; a signed body that is a JSON "
-     "array, or an event whose source is null, raises AttributeError -> 500, and LINE retries")
 @pytest.mark.parametrize("body", [
     b"[]",
     b'{"events": [{"type": "follow", "source": null}]}',
@@ -318,8 +305,6 @@ def test_odd_but_signed_webhook_body_still_gets_200(raw_client, body):
 from test_google import CLIENT_ID, google_on, sign_in_with_google  # noqa: E402,F401
 
 
-@bug("routers/google.py:153 hmac.compare_digest(saved, state) raises TypeError for a "
-     "non-ASCII ?state=, giving a 500 instead of the sign-in error page")
 def test_non_ascii_state_returns_to_signin(get_db, google_on, monkeypatch):
     import app
 
@@ -364,8 +349,6 @@ def test_lockout_cannot_be_dodged_by_changing_x_real_ip(new_client, make_user):
 
 # --- removed sensors --------------------------------------------------------------------
 
-@bug("routers/devices.py:115-119 closes a removed sensor's alerts 'quietly' but leaves its "
-     "queued LINE deliveries pending, so the worker still sends the alert afterwards")
 def test_removed_sensor_alert_is_not_sent_later(client, get_db, monkeypatch):
     sent = []
 
@@ -427,3 +410,15 @@ def test_x_real_ip_is_trusted_from_the_docker_network():
 
     assert _client_address(request("172.18.0.4")) == "203.0.113.9"
     assert _client_address(request("10.82.36.50")) == "10.82.36.50"
+
+
+@pytest.mark.parametrize("path", ["/api/sensors", "/api/sensors/chart", "/api/notifications"])
+def test_bad_timestamp_is_a_400(client, path):
+    response = client.get(path, params={"from": "yesterday", "to": "2026-10-04T00:00:00Z"})
+    assert response.status_code == 400
+
+
+def test_naive_timestamp_is_read_as_utc():
+    import timestamps
+
+    assert timestamps.bounds("2026-10-03T17:00:00", None) == ("2026-10-03T17:00:00", None)

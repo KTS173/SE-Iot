@@ -88,8 +88,10 @@ test.describe("dashboard", () => {
     await page.getByRole("button", { name: "Show all" }).click();
     await expect(page.locator(".recharts-wrapper").first().locator(".recharts-line")).toHaveCount(4);
 
-    // Floor-plan marker "2" is Bench B.
-    await page.getByRole("button", { name: "2", exact: true }).click();
+    // The floor-plan marker shows the device ID and is named after the sensor.
+    const marker = page.getByRole("button", { name: "Floor plan: Bench B" });
+    await expect(marker).toHaveText("002");
+    await marker.click();
     await expect(page.getByText("South bench · ID 002")).toBeVisible();
     await expect(card(page, "Bench B")).toHaveAttribute("aria-pressed", "true");
     await card(page, "Bench B").click(); // toggles back
@@ -134,9 +136,7 @@ test.describe("dashboard", () => {
     expect(await page.evaluate(() => localStorage.getItem("dashboard-chart-range-temperature"))).toBeNull();
   });
 
-  test("BUG: average temperature shows 0.0 °C when no sensor is online", async ({ page }, testInfo) => {
-    bug(testInfo, "Summary shows 'Average Temperature 0.0 °C / Humidity 0 %RH' when every sensor is offline instead of '--'");
-    test.fail();
+  test("averages show '--' when no sensor is online", async ({ page }, testInfo) => {
     // Same roster, but every device stopped reporting.
     await page.route("**/api/devices", async (route) => {
       const response = await route.fetch();
@@ -160,9 +160,7 @@ test.describe("dashboard", () => {
     await expect(benchB.locator(".text-amber-500, .text-red-500, .text-red-600, .bg-amber-50, [class*='amber']")).not.toHaveCount(0, { timeout: 3000 });
   });
 
-  test("BUG: focused non-numeric sensor is lost (charts go blank) when another sensor is added", async ({ page }, testInfo) => {
-    bug(testInfo, "chartId() gives non-numeric devices id 1000+index; a roster change shifts the index so selectedId points at nothing");
-    test.fail();
+  test("focused non-numeric sensor stays focused when another sensor is added", async ({ page }, testInfo) => {
     await page.goto("/dashboard");
     await card(page, "Sensor sensor-01").click();
     await expect(page.getByText("Unassigned · ID sensor-01")).toBeVisible();
@@ -179,11 +177,10 @@ test.describe("dashboard", () => {
     }
   });
 
-  test("UX: custom range calendar lets you pick future dates", async ({ page }, testInfo) => {
-    testInfo.annotations.push({ type: "UX", description: "Dashboard Custom calendar has no disabled={{after: today}} (the LINE log one does)" });
+  test("custom range calendar does not offer future dates", async ({ page }) => {
     await page.goto("/dashboard");
     await page.getByRole("button", { name: "Custom" }).click();
     const nextMonth = page.getByRole("grid").nth(1);
-    await expect(nextMonth.locator('button[name="day"]:not(.day-outside)').first()).toBeEnabled();
+    await expect(nextMonth.locator('button[name="day"]:not(.day-outside)').last()).toBeDisabled();
   });
 });

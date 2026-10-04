@@ -58,9 +58,7 @@ test.describe("console errors and failed requests", () => {
     await expect(page.getByRole("button", { name: /^Bench A/ })).toContainText("Online", { timeout: 12_000 });
   });
 
-  test("BUG: unknown URL shows TanStack's bare 'Not Found' with no way back", async ({ page }, testInfo) => {
-    bug(testInfo, "No notFoundComponent: /does-not-exist renders an unstyled 'Not Found' paragraph, no navigation, and logs a router warning");
-    test.fail();
+  test("unknown URL shows a 404 page with a way back", async ({ page }, testInfo) => {
     await apiLogin(page.request, "member");
     const warnings: string[] = [];
     page.on("console", (m) => { if (m.type() === "warning") warnings.push(m.text()); });
