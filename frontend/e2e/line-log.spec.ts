@@ -130,7 +130,7 @@ test.describe("LINE log", () => {
     await dayButton(page, 2).click();
     await page.keyboard.press("Escape");
     await expect(countLine(page)).toHaveText(`0 messages · ${dayLabel(2)}`);
-    await expect(page.getByText("No LINE messages on these dates")).toBeVisible();
+    await expect(page.getByText("No LINE messages match these filters")).toBeVisible();
   });
 
   test("UX: after a preset, clicking a day extends the preset instead of starting a new pick", async ({ page }, testInfo) => {
@@ -158,9 +158,7 @@ test.describe("LINE log", () => {
     await expect(countLine(page)).toHaveText("10 messages · All dates");
   });
 
-  test("BUG: empty state says 'recorded yet' when only the status filter hides messages", async ({ page }, testInfo) => {
-    bug(testInfo, "With All dates + a status that has no rows, the table says 'No LINE messages recorded yet' although messages exist");
-    test.fail();
+  test("empty state does not say 'recorded yet' when filters hide messages", async ({ page }, testInfo) => {
     await chip(page, "skipped").click();
     // Same log without the skipped row.
     await page.route("**/api/notifications?*", async (route) => {
@@ -176,9 +174,7 @@ test.describe("LINE log", () => {
     await expect(page.getByText("No LINE messages recorded yet")).toHaveCount(0, { timeout: 2000 });
   });
 
-  test("BUG: log silently stops at 500 rows; old failures vanish from 'failed' and 'All dates'", async ({ page }, testInfo) => {
-    bug(testInfo, "Frontend asks limit=500 (backend max) with no paging/notice: count line says '500 messages · All dates' and the Failed filter shows 0 while the Failed card says 2");
-    test.fail();
+  test("status filter finds old failures beyond the newest 500 rows", async ({ page }, testInfo) => {
     // 520 newer "sent" rows, e.g. a few weeks of a flapping sensor.
     sql(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i < 520)
          INSERT INTO notification_deliveries (alert_id, event_state, channel, dedupe_key, retry_key, message, status, attempts, recipient_count, created_at, delivered_at)
@@ -187,7 +183,7 @@ test.describe("LINE log", () => {
     try {
       await page.reload();
       await expect(page.getByText("2 / 1")).toBeVisible();
-      await expect(countLine(page)).toHaveText("500 messages · All dates"); // 531 exist
+      await expect(countLine(page)).toContainText("500 messages · All dates · showing the newest 500 only"); // 531 exist
       await chip(page, "failed").click();
       await expect(chip(page, "failed")).toHaveClass(/bg-blue-600/);
       await page.waitForTimeout(400); // let the chip colour transition finish

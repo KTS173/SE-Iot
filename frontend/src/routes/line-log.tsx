@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { endOfDay, format, startOfDay, subDays } from "date-fns";
 import type { DateRange } from "react-day-picker";
 import { Calendar as CalendarIcon, CheckCircle2, Clock, ExternalLink, MessageSquareText, RefreshCw, Send, Users, X, XCircle } from "lucide-react";
@@ -56,6 +56,9 @@ const statusStyle: Record<DeliveryStatus, string> = {
 
 const filters: ("all" | DeliveryStatus)[] = ["all", "sent", "pending", "failed", "skipped"];
 
+// The backend's maximum page size.
+const LOG_LIMIT = 500;
+
 interface LogDay {
   day: string;
   total: number;
@@ -105,15 +108,19 @@ function LineLogPage() {
 
   // Local midnight to end of day, so a picked date means that whole day here.
   const query = useMemo(() => {
-    const params = new URLSearchParams({ limit: "500" });
+    const params = new URLSearchParams({ limit: String(LOG_LIMIT) });
+    if (filter !== "all") params.set("status", filter);
     if (range?.from) {
       params.set("from", startOfDay(range.from).toISOString());
       params.set("to", endOfDay(range.to ?? range.from).toISOString());
     }
     return params.toString();
-  }, [range]);
+  }, [range, filter]);
+
+  const latestRequest = useRef(0);
 
   const load = useCallback(async () => {
+    const request = ++latestRequest.current;
     try {
       const offset = -new Date().getTimezoneOffset() * 60;
       const [logResponse, statusResponse, daysResponse] = await Promise.all([
@@ -121,6 +128,8 @@ function LineLogPage() {
         apiFetch(`/api/line/status`),
         apiFetch(`/api/notifications/days?offset=${offset}`),
       ]);
+      // A slower response for a previous filter must not overwrite the current one.
+      if (request !== latestRequest.current) return;
       if (logResponse.ok) setDeliveries(((await logResponse.json()) as { data: Delivery[] }).data);
       if (statusResponse.ok) setStatus(((await statusResponse.json()) as { data: LineStatus }).data);
       if (daysResponse.ok) setDays(((await daysResponse.json()) as { data: LogDay[] }).data);
@@ -155,7 +164,10 @@ function LineLogPage() {
     }
   };
 
+  // The backend filters status and dates so older rows are not cut off; filtering
+  // here as well keeps the table right while a new filter is still loading.
   const visible = filter === "all" ? deliveries : deliveries.filter(item => item.status === filter);
+  const filtered = filter !== "all" || !!range?.from;
   const counts = status?.deliveries ?? {};
   const activeRecipients = status?.recipients.filter(item => item.active) ?? [];
 
@@ -306,6 +318,9 @@ function LineLogPage() {
 
         <p className="text-xs text-slate-500">
           {visible.length} message{visible.length === 1 ? "" : "s"} · {rangeLabel(range)}
+          {visible.length >= LOG_LIMIT && (
+            <span className="text-amber-700"> · showing the newest {LOG_LIMIT} only, pick a date range to see older messages</span>
+          )}
         </p>
 
         <Card className="overflow-hidden">
@@ -348,7 +363,7 @@ function LineLogPage() {
                 {visible.length === 0 && (
                   <tr>
                     <td colSpan={6} className="px-5 py-10 text-center text-slate-500">
-                      {loading ? "Loading..." : range?.from ? "No LINE messages on these dates" : "No LINE messages recorded yet"}
+                      {loading ? "Loading..." : filtered ? "No LINE messages match these filters" : "No LINE messages recorded yet"}
                     </td>
                   </tr>
                 )}

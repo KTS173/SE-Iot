@@ -151,9 +151,7 @@ test.describe("dashboard", () => {
     await expect(avg).not.toContainText("0.0");
   });
 
-  test("BUG: sensor above its alert limit is not flagged in the sensor list", async ({ page }, testInfo) => {
-    bug(testInfo, "Bench B reads 31.2 °C (> 30 °C max) but its card looks identical to a healthy one; health() in dashboard.tsx is dead code");
-    test.fail();
+  test("sensor above its alert limit is flagged in the sensor list", async ({ page }, testInfo) => {
     await page.goto("/dashboard");
     const benchB = card(page, "Bench B");
     await expect(benchB).toContainText("31.2°C");

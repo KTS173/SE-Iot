@@ -36,6 +36,8 @@ class SensorMqttClient:
     def _on_message(self, client, userdata, message):
         try:
             payload = json.loads(message.payload.decode("utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("payload must be a JSON object")
             if payload.get("temperature") is None or payload.get("humidity") is None:
                 raise ValueError("temperature and humidity are required")
             payload.setdefault("device_id", self._device_from_topic(message.topic))
@@ -43,6 +45,10 @@ class SensorMqttClient:
             print(f"Sensor data received from {message.topic}: {payload}")
         except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
             print(f"Ignored invalid MQTT message on {message.topic}: {error}")
+        except Exception as error:
+            # paho re-raises callback errors and its network thread dies with them,
+            # which would silently stop ingestion for every sensor.
+            print(f"Failed to store MQTT message on {message.topic}: {error!r}")
 
     @staticmethod
     def _device_from_topic(topic):

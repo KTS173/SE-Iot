@@ -66,8 +66,6 @@ def sign(body):
 
 # --- MQTT ingestion -----------------------------------------------------------
 
-@bug("mqtt_client.py:39 calls payload.get() on any JSON value; a JSON array/number/string "
-     "raises AttributeError, which is not in the except tuple and escapes into paho")
 @pytest.mark.parametrize("payload", ["[1, 2]", "42", '"hello"', "null"])
 def test_non_object_json_payload_is_ignored(get_db, payload):
     client = SensorMqttClient(on_reading=ingest.save_reading)
@@ -75,16 +73,12 @@ def test_non_object_json_payload_is_ignored(get_db, payload):
     assert count(get_db, "sensor_readings") == 0
 
 
-@bug("NaN is valid Python JSON; SQLite stores NaN as NULL so the NOT NULL insert raises "
-     "sqlite3.IntegrityError, which escapes mqtt_client._on_message into paho")
 def test_nan_reading_is_rejected_quietly(get_db):
     client = SensorMqttClient(on_reading=ingest.save_reading)
     client._on_message(None, None, mqtt_message('{"temperature": NaN, "humidity": 50}'))
     assert count(get_db, "sensor_readings") == 0
 
 
-@bug("a non-scalar field (dict/list) makes sqlite3 raise ProgrammingError, which escapes "
-     "mqtt_client._on_message into paho")
 def test_nested_value_reading_is_rejected_quietly(get_db):
     client = SensorMqttClient(on_reading=ingest.save_reading)
     client._on_message(
@@ -170,8 +164,6 @@ def test_broker_round_trip_control(get_db, broker):
     assert alive
 
 
-@bug("one malformed MQTT message kills the paho network thread, so every later reading "
-     "from every sensor is silently dropped until the backend restarts")
 def test_one_bad_message_does_not_stop_ingestion(get_db, broker):
     alive = _run_broker_session(
         get_db, broker, ["[1]", '{"temperature": 25, "humidity": 50}']
@@ -180,17 +172,12 @@ def test_one_bad_message_does_not_stop_ingestion(get_db, broker):
     assert count(get_db, "sensor_readings") == 1
 
 
-@bug("ingest.py:31-37 keeps the raw payload values; a numeric string such as \"35\" is "
-     "stored as 35.0 by SQLite but alerts compare the string, raise TypeError (swallowed at "
-     "ingest.py:24) and no alert is ever opened")
 def test_numeric_string_reading_still_raises_an_alert(get_db):
     ingest.save_reading({"device_id": "001", "temperature": "35", "humidity": "50"})
     assert count(get_db, "sensor_readings") == 1
     assert [a["kind"] for a in alerts.list_alerts()] == ["temp_high"]
 
 
-@bug("a reading of 1e999 parses to float('inf'), is stored, and then every endpoint that "
-     "returns it fails with 500 (Starlette JSON rejects inf) until the row is purged")
 @pytest.mark.parametrize("path", ["/api/sensors", "/api/sensors/latest", "/api/devices", "/api/alerts"])
 def test_infinite_reading_does_not_break_the_dashboard(admin, get_db, path):
     client = SensorMqttClient(on_reading=ingest.save_reading)
@@ -249,8 +236,6 @@ def _many_alerts(get_db, total):
         )
 
 
-@bug("routers/notifications.py:13 only caps the top (min(limit, 500)); limit=-1 reaches "
-     "SQLite as LIMIT -1, i.e. no limit")
 def test_alert_limit_cannot_be_bypassed_with_a_negative_number(client, get_db):
     _many_alerts(get_db, 501)
     assert len(client.get("/api/alerts?status=all&limit=-1").json()["data"]) <= 500
@@ -265,7 +250,6 @@ def _delivery(get_db, created_at, number=1):
         )
 
 
-@bug("routers/notifications.py:23 same negative-limit bypass for the delivery log")
 def test_notification_limit_cannot_be_bypassed_with_a_negative_number(client, get_db):
     for number in range(501):
         _delivery(get_db, "2026-10-01T00:00:00+00:00", number)
@@ -411,3 +395,35 @@ def test_removed_sensor_alert_is_not_sent_later(client, get_db, monkeypatch):
     assert client.delete("/api/devices/001").status_code == 200
     line_client._attempt(pending["id"])
     assert sent == []
+
+
+@pytest.mark.parametrize("payload", [
+    {"temperature": "warm", "humidity": 50},
+    {"temperature": True, "humidity": 50},
+    [25, 50],
+])
+def test_invalid_reading_is_rejected_before_storing(get_db, payload):
+    with pytest.raises(ValueError):
+        ingest.save_reading(payload)
+    assert count(get_db, "sensor_readings") == 0
+
+
+def test_unexpected_storage_error_does_not_escape_into_paho(get_db):
+    def broken(payload):
+        raise RuntimeError("disk gone")
+
+    client = SensorMqttClient(on_reading=broken)
+    client._on_message(None, None, mqtt_message('{"temperature": 25, "humidity": 50}'))
+
+
+def test_notifications_filter_by_status(client, get_db):
+    with get_db() as connection:
+        for alert_id, status in [(1, "sent"), (2, "failed"), (3, "sent")]:
+            connection.execute(
+                "INSERT INTO notification_deliveries (alert_id, event_state, channel, "
+                "dedupe_key, retry_key, message, status, created_at) "
+                "VALUES (?, 'opened', 'line', ?, ?, 'msg', ?, '2026-10-03T10:00:00+00:00')",
+                (alert_id, f"k{alert_id}", f"r{alert_id}", status),
+            )
+    data = client.get("/api/notifications", params={"status": "failed", "limit": 1}).json()["data"]
+    assert [row["alert_id"] for row in data] == [2]

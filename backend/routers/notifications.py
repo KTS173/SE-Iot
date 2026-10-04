@@ -11,7 +11,7 @@ router = APIRouter(dependencies=[Depends(auth.approved_user)])
 @router.get("/api/alerts")
 def list_alerts(status: str = "active", limit: int = 50):
     """Active alerts by default; ?status=all for the incident history."""
-    return {"data": alerts.list_alerts(status=status, limit=min(limit, 500))}
+    return {"data": alerts.list_alerts(status=status, limit=max(1, min(limit, 500)))}
 
 
 @router.get("/api/notifications")
@@ -19,9 +19,12 @@ def list_notifications(
     limit: int = 50,
     from_: str | None = Query(None, alias="from"),
     to: str | None = None,
+    status: str | None = None,
 ):
     """Delivery log: one row per alert message, with attempts and outcome."""
-    return {"data": line_client.list_deliveries(limit=min(limit, 500), from_=from_, to=to)}
+    return {"data": line_client.list_deliveries(
+        limit=max(1, min(limit, 500)), from_=from_, to=to, status=status
+    )}
 
 
 @router.get("/api/notifications/days")

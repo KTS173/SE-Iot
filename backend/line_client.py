@@ -444,7 +444,7 @@ def start_worker():
     _worker.start()
 
 
-def list_deliveries(limit=50, from_=None, to=None):
+def list_deliveries(limit=50, from_=None, to=None, status=None):
     """Newest first; `from_`/`to` are ISO timestamps bounding created_at."""
     if _get_db is None:
         return []
@@ -457,10 +457,11 @@ def list_deliveries(limit=50, from_=None, to=None):
             FROM notification_deliveries
             WHERE (:from IS NULL OR created_at >= :from)
               AND (:to IS NULL OR created_at <= :to)
+              AND (:status IS NULL OR status = :status)
             ORDER BY id DESC
             LIMIT :limit
             """,
-            {"from": from_, "to": to, "limit": limit},
+            {"from": from_, "to": to, "status": status, "limit": limit},
         ).fetchall()
     return [dict(row) for row in rows]
 

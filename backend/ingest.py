@@ -1,4 +1,5 @@
 """MQTT reading -> SQLite row -> alert check."""
+import math
 from datetime import datetime, timezone
 
 import alerts
@@ -25,16 +26,34 @@ def evaluate_alerts(reading):
         print(f"Alert evaluation failed for {device_id}: {error}")
 
 
+def _number(payload, field, required=True):
+    """A finite float from a JSON number or numeric string; ValueError otherwise."""
+    value = payload.get(field)
+    if value is None and not required:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        raise ValueError(f"{field} must be a number")
+    try:
+        number = float(value)
+    except ValueError:
+        raise ValueError(f"{field} must be a number") from None
+    if not math.isfinite(number):
+        raise ValueError(f"{field} must be a finite number")
+    return number
+
+
 def save_reading(payload):
-    storage.cleanup_expired_readings()
-    storage.cleanup_storage_if_needed()
+    if not isinstance(payload, dict):
+        raise ValueError("reading must be a JSON object")
     reading = {
-        "temperature": payload.get("temperature"),
-        "humidity": payload.get("humidity"),
-        "pressure": payload.get("pressure"),
-        "device_id": payload.get("device_id", "unknown"),
+        "temperature": _number(payload, "temperature"),
+        "humidity": _number(payload, "humidity"),
+        "pressure": _number(payload, "pressure", required=False),
+        "device_id": str(payload.get("device_id", "unknown")),
         "received_at": datetime.now(timezone.utc).isoformat(),
     }
+    storage.cleanup_expired_readings()
+    storage.cleanup_storage_if_needed()
     with get_db() as connection:
         # A deleted sensor that is still sending is evidently in use again.
         connection.execute("DELETE FROM removed_devices WHERE device_id = ?", (reading["device_id"],))

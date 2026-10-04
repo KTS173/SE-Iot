@@ -111,9 +111,7 @@ test.describe("sensors management (admin)", () => {
     await expect(r.getByRole("cell").nth(1)).toHaveText("sensor-01", { timeout: 3000 });
   });
 
-  test("BUG: a sensor whose MQTT device ID contains '-' cannot be edited", async ({ page }, testInfo) => {
-    bug(testInfo, "Edit form validates Sensor ID with /^\\w+$/; IDs from topics like sensors/sensor-01/data are rejected, so the sensor can never be configured");
-    test.fail();
+  test("a sensor whose MQTT device ID contains '-' can be edited", async ({ page }, testInfo) => {
     await row(page, "Sensor sensor-01").getByRole("button", { name: "Edit" }).click();
     await field(page, "Sensor name").fill("Freezer probe");
     await field(page, "Location").fill("Freezer");
